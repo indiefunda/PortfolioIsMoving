@@ -353,7 +353,16 @@ def main():
     secrets = load_secrets()
     token = os.environ.get("TELEGRAM_BOT_TOKEN") or secrets.get("telegram_bot_token", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID") or secrets.get("telegram_chat_id", "")
-    api_key = os.environ.get("PRICE_API_KEY") or secrets.get("price_api_key", "")
+    # Read the provider-specific API key. Priority:
+    # 1. Provider-specific env var (e.g. FINNHUB_KEY or TWELVEDATA_KEY) - cloud
+    # 2. Generic PRICE_API_KEY env var - cloud (legacy)
+    # 3. Per-provider secret in secrets_local.json - local
+    # 4. Legacy price_api_key - local
+    provider_env = provider.upper() + "_KEY"
+    api_key = (os.environ.get(provider_env)
+               or os.environ.get("PRICE_API_KEY")
+               or secrets.get(f"{provider}_key", "")
+               or secrets.get("price_api_key", ""))
 
     if not tickers:
         print("No tickers configured. Run app.py to add some.")

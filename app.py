@@ -73,11 +73,22 @@ def save_config(config):
 
 
 def load_secrets():
-    return _read_json(SECRETS_FILE, {"telegram_bot_token": "", "telegram_chat_id": "", "price_api_key": ""})
+    return _read_json(SECRETS_FILE, {
+        "telegram_bot_token": "",
+        "telegram_chat_id": "",
+        "finnhub_key": "",
+        "twelvedata_key": "",
+        "price_api_key": "",  # legacy single-key field
+    })
 
 
 def save_secrets(secrets):
     _write_json(SECRETS_FILE, secrets)
+
+
+def get_provider_key(provider, secrets):
+    """Return the API key for a provider (provider-specific, with legacy fallback)."""
+    return secrets.get(f"{provider}_key", "") or secrets.get("price_api_key", "")
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
             cfg = load_config()
             secrets = load_secrets()
             provider = cfg.get("provider", "finnhub")
-            api_key = secrets.get("price_api_key", "")
+            api_key = get_provider_key(provider, secrets)
             prices = monitor.get_prices([symbol], provider=provider, api_key=api_key)
             pair = prices.get(symbol)
             if pair is None:
@@ -157,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
             cfg = load_config()
             secrets = load_secrets()
             provider = cfg.get("provider", "finnhub")
-            api_key = secrets.get("price_api_key", "")
+            api_key = get_provider_key(provider, secrets)
             tickers = cfg.get("tickers", [])
             threshold = cfg.get("threshold_pct", 5.0)
             enabled = cfg.get("enabled", False)
@@ -215,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(parsed.query)
             requested = (qs.get("provider") or [""])[0].lower()
             provider = requested if requested in ("finnhub", "twelvedata", "yahoo") else cfg.get("provider", "finnhub")
-            api_key = secrets.get("price_api_key", "")
+            api_key = get_provider_key(provider, secrets)
             # If refresh=1, fetch a live price first so the gauge shows real,
             # up-to-date usage (this consumes 1 credit/call on keyed providers).
             refresh = (qs.get("refresh") or [""])[0] == "1"
@@ -315,7 +326,12 @@ class Handler(BaseHTTPRequestHandler):
             if "telegram_chat_id" in payload:
                 secrets["telegram_chat_id"] = payload["telegram_chat_id"].strip()
             if "price_api_key" in payload:
-                secrets["price_api_key"] = payload["price_api_key"].strip()
+                # Save the API key to the provider-specific field so each provider
+                # keeps its own key (Finnhub and Twelve Data use different keys).
+                provider_for_key = cfg.get("provider", "finnhub")
+                if provider_for_key in ("finnhub", "twelvedata"):
+                    secrets[f"{provider_for_key}_key"] = payload["price_api_key"].strip()
+                secrets["price_api_key"] = payload["price_api_key"].strip()  # legacy
             save_config(cfg)
             save_secrets(secrets)
             self._send_json({"ok": True, "config": cfg})
@@ -356,7 +372,7 @@ class Handler(BaseHTTPRequestHandler):
             cfg = load_config()
             secrets = load_secrets()
             provider = cfg.get("provider", "finnhub")
-            api_key = secrets.get("price_api_key", "")
+            api_key = get_provider_key(provider, secrets)
             tickers = cfg.get("tickers", [])
             symbol = tickers[0].strip().upper() if tickers else "AAPL"
 
@@ -502,6 +518,18 @@ HTML = """<!DOCTYPE html>
   .health-price { color: var(--text); font-weight: 600; }
   .health-price .up { color: var(--green); }
   .health-price .down { color: var(--red); }
+  .setup-step { display: flex; align-items: center; gap: 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--border); font-size: 14px; }
+  .setup-step:last-child { border-bottom: none; }
+  .setup-num { width: 28px; height: 28px; border-radius: 50%; background: var(--bg);
+    border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: var(--muted); flex-shrink: 0; }
+  .setup-num.done { background: var(--green); border-color: var(--green); color: #0f172a; }
+  .setup-num.active { background: var(--accent); border-color: var(--accent); color: #0f172a; }
+  .setup-title { font-weight: 600; }
+  .setup-status { color: var(--muted); font-size: 12px; }
+  .setup-status.ok { color: var(--green); }
+  .setup-status.next { color: var(--amber); }
 </style>
 </head>
 <body>
@@ -512,6 +540,49 @@ HTML = """<!DOCTYPE html>
       <div class="sub">Set up your portfolio. Monitoring runs free in the cloud 24/7.</div>
     </div>
     <button class="btn-ghost" onclick="toggleGuide()">❓ How it works</button>
+  </div>
+
+  <div class="card">
+    <h2>✅ Setup Progress (do these in order)</h2>
+    <div id="setupList">
+      <div class="setup-step" id="step-github">
+        <span class="setup-num" id="num-github">1</span>
+        <div>
+          <div class="setup-title">Connect GitHub (for 24/7 cloud monitoring)</div>
+          <div class="setup-status" id="status-github">—</div>
+        </div>
+      </div>
+      <div class="setup-step" id="step-provider">
+        <span class="setup-num" id="num-provider">2</span>
+        <div>
+          <div class="setup-title">Add your price provider (API key)</div>
+          <div class="setup-status" id="status-provider">—</div>
+        </div>
+      </div>
+      <div class="setup-step" id="step-telegram">
+        <span class="setup-num" id="num-telegram">3</span>
+        <div>
+          <div class="setup-title">Set up Telegram alerts</div>
+          <div class="setup-status" id="status-telegram">—</div>
+        </div>
+      </div>
+      <div class="setup-step" id="step-stocks">
+        <span class="setup-num" id="num-stocks">4</span>
+        <div>
+          <div class="setup-title">Add your stocks</div>
+          <div class="setup-status" id="status-stocks">—</div>
+        </div>
+      </div>
+      <div class="setup-step" id="step-enable">
+        <span class="setup-num" id="num-enable">5</span>
+        <div>
+          <div class="setup-title">Enable monitoring</div>
+          <div class="setup-status" id="status-enable">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="hint" id="setupHint">Follow the steps in order. The README (opens
+    automatically) explains each one in detail.</div>
   </div>
 
   <div class="card">
@@ -592,6 +663,10 @@ HTML = """<!DOCTYPE html>
       <p><strong>5. To finish, connect to GitHub</strong> so it runs 24/7 for free.
       Open the <strong>README.md</strong> file in this folder and follow the
       "Connect to GitHub" section. It takes ~5 minutes, once.</p>
+      <p>You'll add 4 GitHub secrets: <code>TELEGRAM_BOT_TOKEN</code>,
+      <code>TELEGRAM_CHAT_ID</code>, <code>FINNHUB_KEY</code>, and
+      <code>TWELVEDATA_KEY</code>. The monitor uses the key that matches the
+      provider you chose. You can leave the unused provider's key blank.</p>
 
       <p><strong>6. Limitations (be honest with yourself):</strong></p>
       <ul>
@@ -650,7 +725,7 @@ HTML = """<!DOCTYPE html>
       </select>
     </div>
     <div style="margin-bottom:12px" id="apikeyRow">
-      <label>Free API key (Twelve Data / Finnhub)</label>
+      <label id="apikeyLabel">Finnhub API key</label>
       <input id="apikey" class="secret" type="text" placeholder="paste your free API key">
       <div class="hint">Get a free key: Twelve Data → twelvedata.com, Finnhub → finnhub.io.
       Yahoo needs no key. If the key is empty, it falls back to Yahoo.</div>
@@ -718,6 +793,7 @@ HTML = """<!DOCTYPE html>
 <script>
 let tickers = [];
 let config = { threshold_pct: 5.0, enabled: false };
+let secretsData = {};
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -727,21 +803,55 @@ async function api(path, opts) {
 async function load() {
   const data = await api('/api/config');
   config = data.config;
+  secretsData = data.secrets || {};
   tickers = data.config.tickers || [];
   document.getElementById('threshold').value = data.config.threshold_pct;
   document.getElementById('enabledToggle').checked = !!data.config.enabled;
   document.getElementById('provider').value = data.config.provider || 'finnhub';
-  document.getElementById('apikey').value = data.secrets.price_api_key || '';
+  document.getElementById('apikey').value = (data.secrets.finnhub_key || data.secrets.twelvedata_key || data.secrets.price_api_key || '');
   document.getElementById('token').value = data.secrets.telegram_bot_token || '';
   document.getElementById('chatid').value = data.secrets.telegram_chat_id || '';
   renderChips();
   updateStatus();
   updateProviderUI();
+  updateSetupProgress();
+}
+
+function updateSetupProgress() {
+  const setStep = (id, numId, done, status, active) => {
+    const num = document.getElementById(numId);
+    num.className = 'setup-num ' + (done ? 'done' : (active ? 'active' : ''));
+    num.textContent = done ? '✓' : num.textContent;
+    const st = document.getElementById('status-' + id);
+    st.textContent = status;
+    st.className = 'setup-status ' + (done ? 'ok' : (active ? 'next' : ''));
+  };
+
+  const provider = config.provider || 'finnhub';
+  const providerKey = secretsData[provider + '_key'] || secretsData.price_api_key || '';
+  const hasProvider = (provider === 'yahoo') || !!providerKey;
+  const hasTelegram = !!(secretsData.telegram_bot_token && secretsData.telegram_chat_id);
+  const hasStocks = tickers.length > 0;
+  const isEnabled = !!config.enabled;
+
+  // GitHub is step 1 — can't be verified from the app, so it's always the
+  // "next" step until the user confirms they've done it.
+  setStep('github', 'num-github', false, 'Do this first — see README Part 6', true);
+  setStep('provider', 'num-provider', hasProvider, hasProvider ? 'Done' : 'Add your API key', false);
+  setStep('telegram', 'num-telegram', hasTelegram, hasTelegram ? 'Done' : 'Set up Telegram', false);
+  setStep('stocks', 'num-stocks', hasStocks, hasStocks ? (tickers.length + ' stock(s)') : 'Add stocks', false);
+  setStep('enable', 'num-enable', isEnabled, isEnabled ? 'ON' : 'OFF', false);
 }
 
 function updateProviderUI() {
   const p = document.getElementById('provider').value;
   document.getElementById('apikeyRow').style.display = (p === 'yahoo') ? 'none' : 'block';
+  // Show the API key for the currently selected provider (each has its own key).
+  const key = secretsData[p + '_key'] || secretsData.price_api_key || '';
+  document.getElementById('apikey').value = key;
+  // Update the label so the user knows which provider's key they're editing.
+  const label = document.getElementById('apikeyLabel');
+  if (label) label.textContent = p === 'twelvedata' ? 'Twelve Data API key' : 'Finnhub API key';
   // Refresh the usage gauges to reflect the newly selected provider's limits.
   refreshUsage();
 }
@@ -979,6 +1089,14 @@ async function save() {
       telegram_bot_token: token, telegram_chat_id: chatid, price_api_key: apikey })
   });
   if (r.ok) {
+    // Update the local secrets/config state so the setup checklist reflects it.
+    const p = document.getElementById('provider').value;
+    secretsData[p + '_key'] = apikey;
+    secretsData.telegram_bot_token = token;
+    secretsData.telegram_chat_id = chatid;
+    config.enabled = enabled;
+    config.tickers = tickers;
+    updateSetupProgress();
     showMsg('✅ Saved! ' + tickers.length + ' ticker(s), threshold ' + threshold + '%.', 'ok');
   } else {
     showMsg('❌ Save failed.', 'err');

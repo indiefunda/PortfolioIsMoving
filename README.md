@@ -224,12 +224,21 @@ called **GitHub Actions** runs the monitor for you in the cloud. This part
    - **Value:** paste your Telegram chat id (from Part 4)
    - Click **Add secret**.
 8. **Third secret:** click **New repository secret** again.
-   - **Name:** type exactly `PRICE_API_KEY`
-   - **Value:** paste your API key (from Part 3, Finnhub or Twelve Data)
+   - **Name:** type exactly `FINNHUB_KEY`
+   - **Value:** paste your **Finnhub** API key (from Part 3, Option A)
+   - Click **Add secret**.
+9. **Fourth secret:** click **New repository secret** again.
+   - **Name:** type exactly `TWELVEDATA_KEY`
+   - **Value:** paste your **Twelve Data** API key (from Part 3, Option B)
    - Click **Add secret**.
 
-> ✅ You should now see 3 secrets listed: `TELEGRAM_BOT_TOKEN`,
-> `TELEGRAM_CHAT_ID`, `PRICE_API_KEY`.
+> ✅ You should now see 4 secrets listed: `TELEGRAM_BOT_TOKEN`,
+> `TELEGRAM_CHAT_ID`, `FINNHUB_KEY`, `TWELVEDATA_KEY`.
+
+> 💡 **Why both keys?** The app supports two providers (Finnhub and Twelve Data),
+> and each uses a **different** key. GitHub stores both, and the monitor uses the
+> one that matches the provider you chose in the app. If you only use one provider,
+> you can leave the other key blank.
 
 > ⚠️ **Copy the names EXACTLY** — with capital letters and underscores. If a name
 > is wrong, the monitor can't find it and won't work.

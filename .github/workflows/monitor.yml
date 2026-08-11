@@ -34,6 +34,11 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Pass both provider keys; monitor.py picks the one matching the
+          # provider set in config_local.json. (PRICE_API_KEY kept for backward
+          # compatibility with the old single-key setup.)
+          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+          TWELVEDATA_KEY: ${{ secrets.TWELVEDATA_KEY }}
           PRICE_API_KEY: ${{ secrets.PRICE_API_KEY }}
         run: python monitor.py
 
