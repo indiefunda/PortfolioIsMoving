@@ -172,19 +172,23 @@ class Handler(BaseHTTPRequestHandler):
             has_key = bool(api_key)
             if provider == "yahoo":
                 minute = {"used_min": None, "left_min": None, "limit_min": None, "delay": "~15 min delayed"}
+                daily_limit = None  # unlimited
             elif provider == "finnhub" and has_key:
                 minute = usage if usage.get("limit_min") else {"used_min": None, "left_min": None, "limit_min": 60, "delay": "real-time"}
+                daily_limit = None  # Finnhub free tier has no daily cap, only 60/min
             elif provider == "twelvedata" and has_key:
                 minute = usage if usage.get("limit_min") else {"used_min": None, "left_min": None, "limit_min": 8, "delay": "real-time"}
+                daily_limit = 800  # Twelve Data hard daily cap
             else:
                 # No key for a keyed provider -> falls back to Yahoo.
                 minute = {"used_min": None, "left_min": None, "limit_min": None, "delay": "~15 min delayed"}
+                daily_limit = None
 
             self._send_json({
                 "provider": provider,
                 "has_key": has_key,
                 "minute": minute,
-                "daily": {"used": daily_usage, "limit": 800},
+                "daily": {"used": daily_usage, "limit": daily_limit},
             })
         else:
             self._send_json({"error": "not found"}, 404)
@@ -628,7 +632,7 @@ async function refreshUsage() {
     const minUsed = min.used_min;
     const minLimit = min.limit_min;
     const dayUsed = daily.used || 0;
-    const dayLimit = daily.limit || 800;
+    const dayLimit = daily.limit;  // null = unlimited
 
     // Per-minute gauge: if no limit (Yahoo), show "unlimited".
     if (minLimit) {
@@ -642,10 +646,17 @@ async function refreshUsage() {
       document.getElementById('usageMinText').textContent = 'unlimited';
     }
 
-    const dayPct = Math.min(100, (dayUsed / dayLimit) * 100);
-    document.getElementById('gaugeDay').style.width = dayPct + '%';
-    document.getElementById('gaugeDay').className = 'gauge-fill' + (dayPct > 75 ? ' warn' : '');
-    document.getElementById('usageDayText').textContent = dayUsed + ' / ' + dayLimit;
+    // Per-day gauge: if no daily limit, show "unlimited".
+    if (dayLimit) {
+      const dayPct = Math.min(100, (dayUsed / dayLimit) * 100);
+      document.getElementById('gaugeDay').style.width = dayPct + '%';
+      document.getElementById('gaugeDay').className = 'gauge-fill' + (dayPct > 75 ? ' warn' : '');
+      document.getElementById('usageDayText').textContent = dayUsed + ' / ' + dayLimit;
+    } else {
+      document.getElementById('gaugeDay').style.width = '0%';
+      document.getElementById('gaugeDay').className = 'gauge-fill';
+      document.getElementById('usageDayText').textContent = 'unlimited';
+    }
 
     // Delay info.
     const delay = min.delay || 'unknown';
@@ -657,8 +668,10 @@ async function refreshUsage() {
       hint.textContent = 'No API key set — using Yahoo fallback (free, unlimited, ~15 min delayed). Add a key for real-time data.';
     } else if (d.provider === 'yahoo') {
       hint.textContent = 'Yahoo Finance is free and unlimited — no usage limits apply. Data is ~15 min delayed.';
+    } else if (d.provider === 'finnhub') {
+      hint.textContent = 'Finnhub free tier: 60 calls/min, no daily cap. Per-minute resets each minute.';
     } else {
-      hint.textContent = 'Live usage from ' + d.provider + ' free tier. Per-minute resets each minute; per-day resets at midnight UTC.';
+      hint.textContent = 'Twelve Data free tier: 8 credits/min, 800/day. Per-minute resets each minute; per-day resets at midnight UTC.';
     }
   } catch(e) {
     document.getElementById('usageMinText').textContent = '—';
