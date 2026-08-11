@@ -37,6 +37,8 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 # ---- Price provider endpoints ----
 # Twelve Data (default): real-time US stocks. /price = live price (1 credit/symbol).
 TWELVE_PRICE = "https://api.twelvedata.com/price?symbol={symbols}&apikey={key}"
+# Twelve Data usage endpoint: reports REAL per-key usage (minute + daily).
+TWELVE_USAGE = "https://api.twelvedata.com/api_usage?apikey={key}"
 # Finnhub: real-time US stocks, free tier = 60/min
 FINNHUB_QUOTE = "https://finnhub.io/api/v1/quote?symbol={symbol}&token={key}"
 # Yahoo Finance (fallback + prev close): ~15 min delayed, unlimited, no key
@@ -111,6 +113,33 @@ last_usage = {}
 def get_last_usage():
     """Return the latest usage info captured from price-call headers."""
     return last_usage
+
+
+def get_provider_usage(provider, api_key):
+    """
+    Fetch the REAL usage reported by the provider for this API key.
+    - Twelve Data: /api_usage returns minute + daily usage (persists across sessions).
+    - Finnhub: no public usage endpoint; returns None (only per-minute via headers).
+    - Yahoo: unlimited; returns None.
+    Returns a dict or None.
+    """
+    if provider == "twelvedata" and api_key:
+        try:
+            resp = requests.get(TWELVE_USAGE.format(key=api_key), timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                "used_min": data.get("current_usage"),
+                "left_min": max(0, data.get("plan_limit", 8) - data.get("current_usage", 0)),
+                "limit_min": data.get("plan_limit", 8),
+                "daily_used": data.get("daily_usage", 0),
+                "daily_limit": data.get("plan_daily_limit", 800),
+                "delay": "real-time",
+            }
+        except Exception as exc:
+            print(f"  [error] twelvedata usage: {exc}", file=sys.stderr)
+            return None
+    return None
 
 
 def _fetch_twelvedata(symbols, api_key):

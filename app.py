@@ -160,41 +160,77 @@ class Handler(BaseHTTPRequestHandler):
             requested = (qs.get("provider") or [""])[0].lower()
             provider = requested if requested in ("finnhub", "twelvedata", "yahoo") else cfg.get("provider", "finnhub")
             api_key = secrets.get("price_api_key", "")
+            # If refresh=1, fetch a live price first so the gauge shows real,
+            # up-to-date usage (this consumes 1 credit/call on keyed providers).
+            refresh = (qs.get("refresh") or [""])[0] == "1"
+            if refresh and api_key and provider in ("finnhub", "twelvedata"):
+                tickers = cfg.get("tickers", [])
+                if tickers:
+                    monitor.get_prices([tickers[0]], provider=provider, api_key=api_key)
+                    # Record the fetch in per-provider daily usage.
+                    state = monitor.load_state()
+                    today = datetime.now(monitor.EASTERN).strftime("%Y-%m-%d")
+                    if state.get("date") != today:
+                        state = {"date": today, "alerted": [], "daily_usage": {}}
+                    usage_map = state.setdefault("daily_usage", {})
+                    usage_map[provider] = int(usage_map.get(provider, 0)) + 1
+                    monitor.save_state(state)
             # Per-minute usage captured free from price-call headers.
             usage = monitor.get_last_usage()
-            # Daily usage tracked per-provider in state.json.
-            daily_usage = 0
-            try:
-                state = monitor.load_state()
-                usage_map = state.get("daily_usage", {})
-                if isinstance(usage_map, dict):
-                    daily_usage = int(usage_map.get(provider, 0))
-                else:  # backward compat: old single-number format
-                    daily_usage = int(usage_map)
-            except Exception:
-                pass
+            # Fetch the REAL usage the provider reports for this API key
+            # (Twelve Data /api_usage persists across sessions).
+            provider_usage = monitor.get_provider_usage(provider, api_key)
 
             # Show the provider's real limits based on the selected provider.
             has_key = bool(api_key)
             if provider == "yahoo":
                 minute = {"used_min": None, "left_min": None, "limit_min": None, "delay": "~15 min delayed"}
-                daily_limit = None  # unlimited
+                daily = {"used": 0, "limit": None, "source": "unlimited"}  # unlimited
             elif provider == "finnhub" and has_key:
-                minute = usage if usage.get("limit_min") else {"used_min": None, "left_min": None, "limit_min": 60, "delay": "real-time"}
-                daily_limit = None  # Finnhub free tier has no daily cap, only 60/min
+                limit_min = 60
+                used_min = usage.get("used_min") if usage.get("limit_min") == limit_min else None
+                minute = {"used_min": used_min, "left_min": (limit_min - used_min) if used_min is not None else None,
+                          "limit_min": limit_min, "delay": "real-time"}
+                # Finnhub has no daily cap; report the local session counter.
+                daily_usage = 0
+                try:
+                    state = monitor.load_state()
+                    usage_map = state.get("daily_usage", {})
+                    daily_usage = int(usage_map.get("finnhub", 0)) if isinstance(usage_map, dict) else int(usage_map)
+                except Exception:
+                    pass
+                daily = {"used": daily_usage, "limit": None, "source": "session"}  # no daily cap
             elif provider == "twelvedata" and has_key:
-                minute = usage if usage.get("limit_min") else {"used_min": None, "left_min": None, "limit_min": 8, "delay": "real-time"}
-                daily_limit = 800  # Twelve Data hard daily cap
+                # Use the provider-reported real usage when available (persists
+                # across sessions and reflects ALL usage for this API key).
+                if provider_usage:
+                    minute = {"used_min": provider_usage.get("used_min"), "left_min": provider_usage.get("left_min"),
+                              "limit_min": provider_usage.get("limit_min", 8), "delay": "real-time"}
+                    daily = {"used": provider_usage.get("daily_used", 0),
+                             "limit": provider_usage.get("daily_limit", 800), "source": "provider"}
+                else:
+                    limit_min = 8
+                    used_min = usage.get("used_min") if usage.get("limit_min") == limit_min else None
+                    minute = {"used_min": used_min, "left_min": (limit_min - used_min) if used_min is not None else None,
+                              "limit_min": limit_min, "delay": "real-time"}
+                    daily_usage = 0
+                    try:
+                        state = monitor.load_state()
+                        usage_map = state.get("daily_usage", {})
+                        daily_usage = int(usage_map.get("twelvedata", 0)) if isinstance(usage_map, dict) else int(usage_map)
+                    except Exception:
+                        pass
+                    daily = {"used": daily_usage, "limit": 800, "source": "session"}
             else:
                 # No key for a keyed provider -> falls back to Yahoo.
                 minute = {"used_min": None, "left_min": None, "limit_min": None, "delay": "~15 min delayed"}
-                daily_limit = None
+                daily = {"used": 0, "limit": None, "source": "unlimited"}
 
             self._send_json({
                 "provider": provider,
                 "has_key": has_key,
                 "minute": minute,
-                "daily": {"used": daily_usage, "limit": daily_limit},
+                "daily": daily,
             })
         else:
             self._send_json({"error": "not found"}, 404)
@@ -510,7 +546,9 @@ HTML = """<!DOCTYPE html>
       </div>
       <div class="hint" id="usageHint">Live usage from your price provider's free tier.
       Per-minute resets every minute; per-day resets at midnight UTC.</div>
-      <button class="btn-ghost" style="margin-top:8px" onclick="refreshUsage()">↻ Refresh usage</button>
+      <button class="btn-ghost" style="margin-top:8px" onclick="refreshUsage(true)">↻ Check usage (fetches a live price)</button>
+      <div class="hint">Clicking this fetches one live price so the gauge shows real
+      usage (uses 1 credit/call on Finnhub/Twelve Data).</div>
     </div>
   </div>
 
@@ -628,10 +666,13 @@ function updateStatus() {
   el.className = 'status ' + (on ? 'on' : 'off');
 }
 
-async function refreshUsage() {
+async function refreshUsage(doFetch) {
   try {
     const selectedProvider = document.getElementById('provider').value;
-    const d = await api('/api/usage?provider=' + selectedProvider);
+    // If doFetch is true, actually fetch a live price so the gauge shows real,
+    // current usage (consumes 1 credit/call on keyed providers).
+    const fetchParam = doFetch ? '&refresh=1' : '';
+    const d = await api('/api/usage?provider=' + selectedProvider + fetchParam);
     const min = d.minute || {};
     const daily = d.daily || {};
     const minUsed = min.used_min;
