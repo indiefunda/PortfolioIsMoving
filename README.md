@@ -134,6 +134,9 @@ In the app (still open in your browser), fill in the boxes:
 > ⚠️ Do **NOT** upload `secrets_local.json` — it has your private info.
 
 ### E. Turn on the monitor
+> ⚠️ **Important:** after forking, GitHub **disables** scheduled workflows by
+> default. You must turn it on — that's this step. If you skip it, nothing will run.
+
 1. In your copy, click the **Actions** tab.
 2. If GitHub asks, click **"I understand my workflows, go ahead and enable them"**.
 3. Click the **Monitor Portfolio** workflow → **Run workflow** → **Run**.
@@ -141,6 +144,10 @@ In the app (still open in your browser), fill in the boxes:
 
 **That's it!** It now runs automatically **every 10 minutes during US market hours,
 Mon–Fri**. Your computer can be off.
+
+> 💡 **Make sure your own stocks are in the config.** The fork starts with example
+> tickers (HUIZ, YB, LX). After you set your own stocks in the app and save, upload
+> the new `config_local.json` (step D). The monitor uses whatever is in that file.
 
 ---
 
