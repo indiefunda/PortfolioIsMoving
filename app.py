@@ -37,7 +37,7 @@ PORT = 8000
 DEFAULT_CONFIG = {
     "tickers": [],
     "threshold_pct": 5.0,
-    "enabled": False,
+    "enabled": True,  # monitoring ON by default (turn off in the app if you want)
     "provider": "finnhub",  # finnhub (default) | twelvedata | yahoo
 }
 

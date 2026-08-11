@@ -34,7 +34,7 @@ copy /y "README.md"         "%STAGE%\README.md"         >nul
 copy /y ".github\workflows\monitor.yml"  "%STAGE%\.github\workflows\monitor.yml"  >nul
 
 REM Write a clean starter config (no pre-set tickers) for the zip.
-echo {"tickers": [], "threshold_pct": 5.0, "enabled": false, "provider": "finnhub"} > "%STAGE%\config_local.json"
+echo {"tickers": [], "threshold_pct": 5.0, "enabled": true, "provider": "finnhub"} > "%STAGE%\config_local.json"
 
 echo  Creating %ZIPNAME% ...
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%\*' -DestinationPath '%ZIPNAME%' -Force"

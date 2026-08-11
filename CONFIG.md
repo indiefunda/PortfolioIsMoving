@@ -24,7 +24,7 @@ Here's an example with every option:
 {
   "tickers": ["HUIZ", "YB", "LX"],
   "threshold_pct": 5.0,
-  "enabled": false,
+  "enabled": true,
   "provider": "finnhub"
 }
 ```
@@ -53,16 +53,15 @@ How big a move triggers an alert.
 - Set higher (e.g. `10.0`) for less sensitive, or lower (e.g. `2.0`) for more sensitive.
 
 ### `enabled` (required)
-The master on/off switch for the monitor.
+The master on/off switch for the monitor. **Defaults to ON (`true`).**
 
 ```json
-"enabled": false
+"enabled": true
 ```
 
+- `true` = monitoring is ON (the cloud monitor checks during US market hours).
 - `false` = monitoring is OFF (the cloud monitor skips runs).
-- `true` = monitoring is ON (the cloud monitor checks every 10 minutes during
-  US market hours).
-- You turn this on in the app by switching **"Enable monitoring"** to ON and clicking Save.
+- Turn it off in the app by switching **"Enable monitoring"** to OFF and clicking Save.
 
 > 💡 This is the most common reason the GitHub monitor says "disabled" — you
 > haven't switched it ON yet.
