@@ -37,13 +37,11 @@ Your computer only needs to be on for **step 1**. After that it can be turned of
 
 ### Step 2 — Open the setup screen
 
-**Option A (easy):** double-click **`start.bat`** (in this folder).
+**Double-click `start.bat`** (in this folder).
 
-**Option B (if you have the .exe):** double-click **`PortfolioIsMoving.exe`**.
-
-A small black window will open, and then your browser will open the setup page.
-(If Python was just installed, the black window will first install a small library —
-that's normal, wait a minute.)
+A small black window will open. It checks for Python, installs two small libraries
+(only the first time), and then opens the setup page in your browser. Just follow
+the messages on screen.
 
 > If nothing opens in your browser, type this into the browser's address bar:
 > **http://localhost:8000**
@@ -125,7 +123,7 @@ That's it. From now on it runs automatically **every 10 minutes during US market
 
 ## When you want to change your stocks
 
-1. Run the setup screen again (`start.bat` or the `.exe`).
+1. Run the setup screen again (`start.bat`).
 2. Change your tickers / threshold, click **Save**.
 3. Re-upload the new `config_local.json` to your GitHub copy (Step D above).
 4. That's it — the monitor uses the new list on its next run.
@@ -161,25 +159,26 @@ Yes, but then your computer must stay on during market hours. See `LOCAL_MODE.md
 ### Files
 | File | Purpose |
 |------|---------|
-| `app.py` | Local setup web page (run this, or the .exe) |
+| `app.py` | Local setup web page (run this via `start.bat`) |
 | `monitor.py` | The core checker (prices + Telegram alert) |
 | `config_local.json` | Your portfolio (tickers, threshold, enabled) — committed |
 | `secrets_local.json` | Your Telegram token + chat id — **git-ignored** |
-| `start.bat` | One-click launcher (installs deps if needed) |
-| `build_exe.bat` | Builds a single `.exe` for non-developers |
+| `start.bat` | **One-click launcher** — installs deps, opens the setup page |
+| `build_exe.bat` | *Optional:* build a single `.exe` (needs PyInstaller) |
 | `.github/workflows/monitor.yml` | Free 24/7 cloud scheduler |
 
 ### Local-only mode (no GitHub)
 If you want to run on your own computer instead of the cloud:
 ```
-pip install -r requirements.txt
 start.bat            # set up + enable
 python monitor.py    # run one check now
 ```
 To keep it running, you'd need to schedule `monitor.py` to run every 10 min
 (e.g. Windows Task Scheduler) and keep the computer on during market hours.
 
-### Build the .exe for friends
+### Optional: build a single `.exe` (if you prefer no Python install)
+The `.bat` approach above is lighter and simpler. But if you'd rather give friends
+a single file that needs no Python at all, you can build an `.exe`:
 ```
 pip install pyinstaller
 build_exe.bat

@@ -253,12 +253,89 @@ HTML = """<!DOCTYPE html>
   .price-preview .down { color: var(--red); }
   .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
   .secret { font-family: monospace; }
+  .guide-text { font-size: 14px; line-height: 1.7; color: var(--text); }
+  .guide-text p { margin-bottom: 12px; }
+  .guide-text ul, .guide-text ol { margin: 0 0 12px 20px; }
+  .guide-text li { margin-bottom: 6px; }
+  .guide-text code {
+    background: var(--bg); padding: 2px 6px; border-radius: 4px;
+    font-size: 13px; color: var(--accent);
+  }
+  .guide-text strong { color: var(--text); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>📈 PortfolioIsMoving</h1>
-  <div class="sub">Set up your portfolio. Monitoring runs free in the cloud 24/7.</div>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <h1>📈 PortfolioIsMoving</h1>
+      <div class="sub">Set up your portfolio. Monitoring runs free in the cloud 24/7.</div>
+    </div>
+    <button class="btn-ghost" onclick="toggleGuide()">❓ How it works</button>
+  </div>
+
+  <div class="card" id="guide" style="display:none">
+    <h2>📖 How it works (read this first)</h2>
+    <div class="guide-text">
+      <p><strong>1. What this does.</strong> It watches your stocks during US market
+      hours and sends you a <strong>Telegram message on your phone</strong> when a stock
+      moves more than your chosen amount (default 5%) from the previous day's close.</p>
+
+      <p><strong>2. You only set this up once.</strong> Fill in the 4 boxes below, click
+      <strong>Save</strong>, and you're done. After that, monitoring runs free in the
+      <strong>cloud</strong> 24/7 — your computer can be turned off.</p>
+
+      <p><strong>3. The 4 boxes, explained:</strong></p>
+      <ul>
+        <li><strong>Your stocks</strong> — type a ticker (the short code for a stock,
+        e.g. <code>HUIZ</code>, <code>AAPL</code>) and click Add. Add as many as you like.</li>
+        <li><strong>Alert threshold</strong> — how big a move triggers an alert. 5 = alert
+        when it moves more than 5%.</li>
+        <li><strong>Telegram</strong> — how alerts reach your phone. You create a free bot
+        once (see below) and paste its token + your chat id here.</li>
+        <li><strong>Enable monitoring</strong> — the on/off switch. Turn it on when ready.</li>
+      </ul>
+
+      <p><strong>4. Setting up Telegram (free, 2 minutes):</strong></p>
+      <ol>
+        <li>Open <strong>Telegram</strong> on your phone.</li>
+        <li>Search for <strong>@BotFather</strong> (official bot, blue checkmark).</li>
+        <li>Send <code>/newbot</code>, pick a name, then a username ending in <code>bot</code>.</li>
+        <li>BotFather gives you a <strong>token</strong> like <code>123456789:AAH...</code> — copy it.</li>
+        <li>Open your new bot, press <strong>Start</strong>.</li>
+        <li>In a browser go to
+        <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> and find your
+        <strong>chat id</strong> (a number inside <code>"chat":{"id":123}</code>).</li>
+      </ol>
+
+      <p><strong>5. To finish, connect to GitHub</strong> so it runs 24/7 for free.
+      Open the <strong>README.md</strong> file in this folder and follow the
+      "Connect to GitHub" section. It takes ~5 minutes, once.</p>
+
+      <p><strong>6. Limitations (be honest with yourself):</strong></p>
+      <ul>
+        <li>Free price data is about <strong>15 minutes delayed</strong>. Good for stocks
+        that move over hours, not for split-second trading.</li>
+        <li>Checks happen <strong>every 10 minutes</strong>, during US market hours
+        (Mon–Fri, 9:30am–4pm Eastern).</li>
+        <li>Each stock alerts <strong>once per day</strong> — you won't be spammed.</li>
+        <li>It only works for stocks with a ticker on a US exchange.</li>
+      </ul>
+
+      <p><strong>7. If something isn't working:</strong></p>
+      <ul>
+        <li><strong>No browser opens?</strong> Manually go to <code>http://localhost:8000</code>.</li>
+        <li><strong>"Python is not installed"?</strong> Install it from python.org and
+        tick <strong>"Add Python to PATH"</strong> during install. Then run start.bat again.</li>
+        <li><strong>Test alert doesn't arrive?</strong> Double-check the token and chat id
+        are pasted exactly (no spaces). Make sure you pressed <strong>Start</strong> on your bot.</li>
+        <li><strong>No alerts during the day?</strong> Check your GitHub Actions log — see
+        README. Common cause: you forgot to add the two secrets, or monitoring is off.</li>
+        <li><strong>Still stuck?</strong> Re-read the README step by step, or ask whoever
+        gave you this app.</li>
+      </ul>
+    </div>
+  </div>
 
   <div class="card">
     <h2>1. Your stocks</h2>
@@ -329,13 +406,17 @@ async function load() {
   updateStatus();
 }
 
+function toggleGuide() {
+  const guide = document.getElementById('guide');
+  guide.style.display = (guide.style.display === 'none') ? 'block' : 'none';
+}
+
 function renderChips() {
   const el = document.getElementById('chips');
   el.innerHTML = '';
-  tickers.forEach(t => {
-    const chip = document.createElement('span');
+  tickers.forEach(t => {    const chip = document.createElement('span');
     chip.className = 'chip';
-    chip.innerHTML = t + ' <button onclick="removeTicker(\'' + t + '\')">&times;</button>';
+    chip.innerHTML = t + ' <button onclick="removeTicker(\\'' + t + '\\')">&times;</button>';
     el.appendChild(chip);
   });
 }
