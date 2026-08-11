@@ -351,8 +351,8 @@ def main():
 
     prices = get_prices(tickers, provider=provider, api_key=api_key)
 
-    # Track daily usage: Twelve Data /price uses 1 credit per symbol checked.
-    if provider == "twelvedata" and api_key:
+    # Track daily usage: each keyed provider makes 1 call per symbol checked.
+    if api_key and provider in ("finnhub", "twelvedata"):
         state["daily_usage"] = int(state.get("daily_usage", 0)) + len(prices)
 
     for symbol in tickers:

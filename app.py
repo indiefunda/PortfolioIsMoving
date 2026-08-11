@@ -13,7 +13,8 @@ http://localhost:8000 where you can:
 Everything is saved to local files. Nothing is uploaded. Close the window
 when you're done - monitoring runs 24/7 in the cloud via GitHub Actions.
 
-Uses only the Python standard library (http.server, json, webbrowser).
+Uses the Python standard library plus the local monitor module (which needs
+requests + pytz, installed by start.bat).
 """
 
 import json
@@ -23,6 +24,8 @@ import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+
+import monitor  # local module for price fetching + state
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config_local.json")
@@ -128,7 +131,6 @@ class Handler(BaseHTTPRequestHandler):
             if not symbol:
                 self._send_json({"error": "no symbol"}, 400)
                 return
-            import monitor
             cfg = load_config()
             secrets = load_secrets()
             provider = cfg.get("provider", "finnhub")
@@ -150,7 +152,6 @@ class Handler(BaseHTTPRequestHandler):
                 monitor.save_state(state)
             self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
         elif parsed.path == "/api/usage":
-            import monitor
             cfg = load_config()
             secrets = load_secrets()
             # Use the provider passed from the UI (if any), else the saved config.
@@ -233,7 +234,6 @@ class Handler(BaseHTTPRequestHandler):
             if not token or not chat_id:
                 self._send_json({"ok": False, "error": "Enter both token and chat id first."}, 400)
                 return
-            import monitor
             cfg = load_config()
             secrets = load_secrets()
             provider = cfg.get("provider", "finnhub")
