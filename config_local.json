@@ -1,0 +1,7 @@
+{
+    "tickers": [
+        "HUIZ"
+    ],
+    "threshold_pct": 5.0,
+    "enabled": true
+}

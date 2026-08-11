@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Secrets (never commit your bot token or chat id)
+# Note: config_local.json is COMMITTED on purpose - it only holds tickers,
+# threshold and enabled flag (no secrets). Telegram secrets go in GitHub Actions.
+.env
+*.env
+
+# OS
+Thumbs.db
+.DS_Store

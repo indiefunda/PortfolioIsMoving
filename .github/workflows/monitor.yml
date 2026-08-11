@@ -1,0 +1,34 @@
+name: Monitor Portfolio
+
+# Runs every 10 minutes during US market hours.
+# Market is 9:30-16:00 ET. In UTC that is 14:30-21:00 (EST) or 13:30-20:00 (EDT).
+# To keep it simple and robust across DST, we run a bit wider window:
+#   */10 13-21 * * 1-5  -> every 10 min, hours 13-21 UTC, Mon-Fri
+# The script itself double-checks the exact market hours, so extra runs are harmless.
+on:
+  schedule:
+    - cron: "*/10 13-21 * * 1-5"
+  workflow_dispatch: # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run monitor
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor.py
