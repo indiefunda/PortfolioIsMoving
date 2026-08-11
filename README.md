@@ -64,25 +64,75 @@ The app needs a key to fetch **live** stock prices. Pick **one** of these two
 
 # PART 4 — Create your Telegram bot (for alerts)
 
-This is how alerts reach your phone. **Free, ~2 minutes.**
+This is how alerts reach your phone. **Free, ~3 minutes.** You'll do this on your
+**phone** in the Telegram app.
 
-1. On your phone, open **Telegram**.
-2. Search for **@BotFather** (official bot, blue checkmark).
-3. Send it: **`/newbot`**
-4. It asks for a **name** — type anything, e.g. `My Stock Alerts`.
-5. It asks for a **username** — must end in `bot`, e.g. `mystockalerts_bot`.
-6. BotFather replies with a **token** like `123456789:AAH...` — **copy it**.
+---
 
-Now get your **chat id** (your personal number for receiving messages):
-7. In Telegram, open **your new bot** and press **Start** (send it any message,
-   like "hi"). This tells Telegram you want to talk to the bot.
-8. Now go to the **app** (still open in your browser). In the **Telegram** box,
-   paste your **bot token**, then click the **"🪪 Get my chat id"** button.
-   The app will fill in your **chat id** automatically.
-   - If the button doesn't work, see the box below.
+### Step 4.1 — Open Telegram on your phone
 
-> 📌 **Manual way (only if the button doesn't work):**
-> 1. Open a new browser tab and go to:
+1. Find the **Telegram** app on your phone (the blue circle with a white paper-plane).
+2. Tap it to open it.
+3. If you're not already signed in, enter your phone number and follow the steps.
+
+---
+
+### Step 4.2 — Find BotFather
+
+1. At the **top** of the Telegram screen, there's a **search bar** (a magnifying-glass
+   icon ⚙ or a "Search" box).
+2. Tap it and type: **`@BotFather`**
+3. Tap the result that says **"BotFather"** with a **blue checkmark** next to it.
+   - It's the OFFICIAL bot. Don't tap any other "BotFather" without the checkmark.
+
+---
+
+### Step 4.3 — Create a new bot
+
+1. You'll see a chat window with BotFather.
+2. At the **bottom**, there's a **message box** (where you type messages).
+3. Type this exactly and press **Send** (the paper-plane icon):
+   ```
+   /newbot
+   ```
+4. BotFather asks: *"Alright, a new bot. How are we going to call it?"*
+   - Type a **name** for your bot (any name, e.g. `My Stock Alerts`). Press Send.
+5. BotFather asks: *"Now let's choose a username for your bot. It must end in bot."*
+   - Type a **username** that ends in `bot`, e.g. `mystockalerts_bot`. Press Send.
+   - If it says the username is taken, try another one.
+6. BotFather replies with a message containing your **token**. It looks like:
+   ```
+   123456789:AAH...
+   ```
+   - This is a long string of letters and numbers.
+   - **Copy it** (tap and hold → Copy). Keep it somewhere safe.
+
+---
+
+### Step 4.4 — Get your chat id (auto)
+
+Now you need to "talk" to your bot once, so Telegram knows you want to receive
+messages from it. **This is where the "Start" button is.**
+
+1. At the **top**, tap the **search bar** again.
+2. Type your bot's **username** (e.g. `@mystockalerts_bot`).
+3. Tap your bot in the results — it opens a chat window with your bot.
+4. At the **bottom** of that chat, you'll see a blue button that says:
+   **"START"** (and usually a "🚀" or "▶️" icon).
+   - **Tap that START button.**
+5. After tapping Start, you'll see a **message box** at the bottom.
+   - Type `hi` and press **Send** (the paper-plane icon).
+   - Your bot will reply something like *"I don't understand..."* — that's fine.
+6. Now go to the **app** (still open in your browser on your computer).
+   - In the **Telegram** box, paste your **bot token** (from Step 4.3).
+   - Click the **"🪪 Get my chat id"** button.
+   - The app will find and fill in your **chat id** automatically. 🎉
+
+> 📌 **If the button says "No message found yet":** you didn't press Start or send
+> a message. Go back to Step 4.4, tap **START**, send `hi`, then click the button again.
+
+> 📌 **Manual way (only if the button never works):**
+> 1. On your computer, open a new browser tab and go to:
 >    `https://api.telegram.org/botYOUR_TOKEN_HERE/getUpdates`
 >    (replace `YOUR_TOKEN_HERE` with your actual token)
 > 2. You'll see a page of text. Look for this pattern: `"chat":{"id":123456789`

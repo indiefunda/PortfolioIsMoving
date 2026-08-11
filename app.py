@@ -583,7 +583,8 @@ HTML = """<!DOCTYPE html>
         <li>Search for <strong>@BotFather</strong> (official bot, blue checkmark).</li>
         <li>Send <code>/newbot</code>, pick a name, then a username ending in <code>bot</code>.</li>
         <li>BotFather gives you a <strong>token</strong> like <code>123456789:AAH...</code> — copy it.</li>
-        <li>Open your new bot, press <strong>Start</strong>, send it any message (like "hi").</li>
+        <li>Search for your <strong>own bot</strong> (its username), open it, and tap the
+        blue <strong>START</strong> button at the bottom. Then type <code>hi</code> and send it.</li>
         <li>Back in this app, paste your token and click <strong>"🪪 Get my chat id"</strong>
         — it fills in your chat id for you. No need to read raw text.</li>
       </ol>
