@@ -146,28 +146,30 @@ Yes. Telegram is free. GitHub Actions is free for public repos (this one is publ
 
 **How fast is the alert?**
 Prices are checked every 10 minutes. The delay depends on your **price source**:
-- **Twelve Data** or **Finnhub** (free API key) → **real-time**, no delay.
+- **Finnhub** (default) or **Twelve Data** (free API key) → **real-time**, no delay.
 - **Yahoo Finance** (no key, default fallback) → ~15 minutes delayed.
 
 Either is plenty for stocks that move over hours.
 
 **Will it work for illiquid / small / Chinese-listed stocks (like HUIZ, YB, LX)?**
 Yes — this was tested. The app uses a **hybrid** approach:
-- **Live price** comes from your chosen real-time provider (Twelve Data / Finnhub).
+- **Live price** comes from your chosen real-time provider (Finnhub / Twelve Data).
 - **Previous close** comes from **Yahoo Finance** (free, unlimited, great coverage
   of small and foreign-listed stocks).
 
 All of **HUIZ** (Huize), **YB** (Yuanbao), and **LX** (LexinFintech) returned real
 prices in testing. These are US-listed (NASDAQ) stocks, so they're covered.
 
-**How many stocks can I track for free?**
-- Twelve Data free tier: **800 requests/day**, and the app uses **1 credit per stock**
-  for the live price (the previous close is free via Yahoo).
-- With checks every 10 minutes (~39/day), you can easily track **dozens of stocks**
-  within the free limit.
+**How many stocks can I track for free?** (conservative limits)
+- **Finnhub** (default): up to **50 stocks** per check. Free tier = 60 calls/min,
+  no daily cap. Each stock = 1 call.
+- **Twelve Data**: up to **8 stocks** per check, ~**20 stocks/day**. Free tier =
+  8 credits/min, 800/day. Each stock = 1 credit (prev close is free via Yahoo).
+- **Yahoo**: up to **50 stocks** (no hard limit, but keep it modest to avoid blocks).
 
 **I get an alert — will I get it again and again?**
 No. Each stock alerts **once per day**. If it keeps moving, you won't be spammed.
+(The app saves its alert state back to the repo so this works even in the cloud.)
 
 **What does "previous trading day's close" mean?**
 The stock's price at the end of the last day the market was open. The alert fires

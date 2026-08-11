@@ -10,8 +10,11 @@ on:
     - cron: "*/10 13-21 * * 1-5"
   workflow_dispatch: # lets you trigger a run manually from the Actions tab
 
+# Need write permission so we can commit state.json back after each run.
+# This persists the "already alerted today" list and daily-usage counter,
+# so a stock only alerts ONCE per day (not every 10 minutes).
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   monitor:
@@ -33,3 +36,16 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           PRICE_API_KEY: ${{ secrets.PRICE_API_KEY }}
         run: python monitor.py
+
+      # Persist state.json so alerts are deduplicated across runs.
+      - name: Save state (persist anti-spam + usage)
+        run: |
+          if [ -f state.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update monitor state [skip ci]" || echo "No state changes"
+            git push origin HEAD:main
+          else
+            echo "No state.json to persist"
+          fi

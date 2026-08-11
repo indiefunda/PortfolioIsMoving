@@ -15,7 +15,6 @@ Alerts      : Telegram bot (free)
 import json
 import os
 import sys
-import time
 from datetime import datetime, time as dtime
 
 import pytz
