@@ -344,7 +344,17 @@ def main():
 
     enabled = config.get("enabled", False)
     if not enabled:
-        print("Monitoring is disabled (enabled=false). Enable it in app.py.")
+        print("")
+        print("Monitoring is currently DISABLED (enabled=false).")
+        print("")
+        print("To turn it ON:")
+        print("  1. Run start.bat on your computer to open the app.")
+        print("  2. Set up your stocks, provider, and Telegram.")
+        print("  3. Switch 'Enable monitoring' to ON and click Save.")
+        print("  4. Upload the updated config_local.json back to this GitHub repo.")
+        print("  5. This monitor will then run every 10 minutes.")
+        print("")
+        print("(Nothing ran this time because monitoring is off.)")
         return
 
     tickers = config.get("tickers", [])

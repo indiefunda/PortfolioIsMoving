@@ -276,6 +276,11 @@ called **GitHub Actions** runs the monitor for you in the cloud. This part
 7. In the run, click the **Monitor** job, then the step **Run monitor**.
 8. You'll see the log — it checks each of your stocks and shows their % move.
 
+> 💡 **If the log says "Monitoring is disabled":** that's normal if you haven't
+> switched monitoring ON yet. Run `start.bat`, switch **"Enable monitoring"** to
+> ON, click **Save**, then upload the new `config_local.json` (step D). The next
+> run will then check your stocks.
+
 ---
 
 **That's it!** Your monitor is now connected and runs automatically **every 10
@@ -345,6 +350,7 @@ at all). Only Twelve Data has a real daily cap (800/day), which the app tracks.
 
 # Need more detail?
 
+- **`CONFIG.md`** — explains every setting in `config_local.json`.
 - **`README-DEVELOPER.md`** — for developers.
 - **`README-TECHNICAL.md`** — full technical reference / for AI.
 - **`LOCAL_MODE.md`** — how to run without GitHub (computer must stay on).
