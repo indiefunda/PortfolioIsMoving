@@ -142,13 +142,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             cur, prev = pair
             pct = ((cur - prev) / prev * 100.0) if prev else 0.0
-            # Track daily usage in state.json when a keyed provider is used.
+            # Track daily usage per-provider in state.json when a keyed provider is used.
             if api_key and provider in ("finnhub", "twelvedata"):
                 state = monitor.load_state()
                 today = datetime.now(monitor.EASTERN).strftime("%Y-%m-%d")
                 if state.get("date") != today:
-                    state = {"date": today, "alerted": [], "daily_usage": 0}
-                state["daily_usage"] = int(state.get("daily_usage", 0)) + 1
+                    state = {"date": today, "alerted": [], "daily_usage": {}}
+                usage = state.setdefault("daily_usage", {})
+                usage[provider] = int(usage.get(provider, 0)) + 1
                 monitor.save_state(state)
             self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
         elif parsed.path == "/api/usage":
@@ -161,11 +162,15 @@ class Handler(BaseHTTPRequestHandler):
             api_key = secrets.get("price_api_key", "")
             # Per-minute usage captured free from price-call headers.
             usage = monitor.get_last_usage()
-            # Daily usage tracked locally in state.json.
+            # Daily usage tracked per-provider in state.json.
             daily_usage = 0
             try:
                 state = monitor.load_state()
-                daily_usage = int(state.get("daily_usage", 0))
+                usage_map = state.get("daily_usage", {})
+                if isinstance(usage_map, dict):
+                    daily_usage = int(usage_map.get(provider, 0))
+                else:  # backward compat: old single-number format
+                    daily_usage = int(usage_map)
             except Exception:
                 pass
 

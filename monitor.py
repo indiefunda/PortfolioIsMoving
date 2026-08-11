@@ -344,16 +344,18 @@ def main():
     state = load_state()
     today = now_et.strftime("%Y-%m-%d")
     if state.get("date") != today:
-        state = {"date": today, "alerted": [], "daily_usage": 0}
+        # New day: reset alerts and per-provider usage counters.
+        state = {"date": today, "alerted": [], "daily_usage": {}}
 
     print(f"[{now_et.strftime('%Y-%m-%d %H:%M %Z')}] Checking {len(tickers)} ticker(s) "
           f"via {provider}...")
 
     prices = get_prices(tickers, provider=provider, api_key=api_key)
 
-    # Track daily usage: each keyed provider makes 1 call per symbol checked.
+    # Track daily usage per-provider (each provider has its own quota).
     if api_key and provider in ("finnhub", "twelvedata"):
-        state["daily_usage"] = int(state.get("daily_usage", 0)) + len(prices)
+        usage = state.setdefault("daily_usage", {})
+        usage[provider] = int(usage.get(provider, 0)) + len(prices)
 
     for symbol in tickers:
         symbol = symbol.strip().upper()
