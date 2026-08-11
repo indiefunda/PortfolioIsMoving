@@ -152,6 +152,62 @@ class Handler(BaseHTTPRequestHandler):
                 usage[provider] = int(usage.get(provider, 0)) + 1
                 monitor.save_state(state)
             self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
+        elif parsed.path == "/api/health":
+            # Full health check: validates API key, fetches a price, reports status.
+            cfg = load_config()
+            secrets = load_secrets()
+            provider = cfg.get("provider", "finnhub")
+            api_key = secrets.get("price_api_key", "")
+            tickers = cfg.get("tickers", [])
+            threshold = cfg.get("threshold_pct", 5.0)
+            enabled = cfg.get("enabled", False)
+            token = secrets.get("telegram_bot_token", "")
+            chat_id = secrets.get("telegram_chat_id", "")
+
+            # 1. API key check
+            key_ok = bool(api_key) or provider == "yahoo"
+            key_status = "OK" if key_ok else ("No key set (Yahoo fallback)" if provider != "yahoo" else "OK (no key needed)")
+
+            # 2. Try to fetch a live price for the first stock (validates key + provider).
+            symbol = tickers[0].strip().upper() if tickers else None
+            price_ok = False
+            price_info = None
+            if symbol:
+                prices = monitor.get_prices([symbol], provider=provider, api_key=api_key)
+                pair = prices.get(symbol)
+                if pair:
+                    cur, prev = pair
+                    pct = ((cur - prev) / prev * 100.0) if prev else 0.0
+                    price_ok = True
+                    price_info = {"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)}
+                else:
+                    price_info = {"error": "Could not fetch price. Check API key or provider."}
+
+            # 3. Fetch real usage (Twelve Data provider-reported, else header/session).
+            provider_usage = monitor.get_provider_usage(provider, api_key)
+            usage = monitor.get_last_usage()
+
+            # 4. Telegram check
+            telegram_ok = bool(token) and bool(chat_id)
+
+            # 5. Stock count
+            stock_count = len(tickers)
+
+            self._send_json({
+                "provider": provider,
+                "has_key": key_ok,
+                "api_key_status": key_status,
+                "price": price_info,
+                "price_ok": price_ok,
+                "minute": usage,
+                "provider_usage": provider_usage,
+                "telegram_ok": telegram_ok,
+                "telegram_status": "Configured" if telegram_ok else "Missing token or chat id",
+                "stock_count": stock_count,
+                "threshold": threshold,
+                "enabled": enabled,
+                "monitoring_status": "ON" if enabled else "OFF",
+            })
         elif parsed.path == "/api/usage":
             cfg = load_config()
             secrets = load_secrets()
@@ -407,6 +463,17 @@ HTML = """<!DOCTYPE html>
   }
   .gauge-fill.warn { background: linear-gradient(90deg, var(--amber), var(--red)); }
   .usage-num { width: 70px; text-align: right; color: var(--text); font-weight: 600; }
+  .health-item { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .health-item:last-child { border-bottom: none; }
+  .health-label { color: var(--muted); }
+  .health-value { font-weight: 600; }
+  .health-ok { color: var(--green); }
+  .health-bad { color: var(--red); }
+  .health-warn { color: var(--amber); }
+  .health-price { color: var(--text); font-weight: 600; }
+  .health-price .up { color: var(--green); }
+  .health-price .down { color: var(--red); }
 </style>
 </head>
 <body>
@@ -417,6 +484,47 @@ HTML = """<!DOCTYPE html>
       <div class="sub">Set up your portfolio. Monitoring runs free in the cloud 24/7.</div>
     </div>
     <button class="btn-ghost" onclick="toggleGuide()">❓ How it works</button>
+  </div>
+
+  <div class="card">
+    <h2>🩺 Health Check</h2>
+    <div id="healthBox">
+      <div class="health-item">
+        <span class="health-label">Provider</span>
+        <span class="health-value" id="hProvider">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">API key</span>
+        <span class="health-value" id="hKey" class="health-warn">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">Live price</span>
+        <span class="health-price" id="hPrice">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">Per minute</span>
+        <span class="health-value" id="hMinute">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">Per day</span>
+        <span class="health-value" id="hDay">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">Telegram</span>
+        <span class="health-value" id="hTelegram">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">Stocks</span>
+        <span class="health-value" id="hStocks">—</span>
+      </div>
+      <div class="health-item">
+        <span class="health-label">Monitoring</span>
+        <span class="health-value" id="hMonitoring">—</span>
+      </div>
+      <button class="btn-primary" style="width:100%;margin-top:14px" onclick="runHealthCheck()">🩺 Run health check</button>
+      <div class="hint">Checks your API key, fetches a live price, and shows your
+      current per-minute and per-day usage. Great to run whenever you open the app.</div>
+    </div>
   </div>
 
   <div class="card" id="guide" style="display:none">
@@ -658,6 +766,76 @@ function updateStatus() {
   const el = document.getElementById('statusText');
   el.textContent = on ? 'MONITORING ON' : 'Monitoring off';
   el.className = 'status ' + (on ? 'on' : 'off');
+}
+
+async function runHealthCheck() {
+  const btn = document.querySelector('button[onclick="runHealthCheck()"]');
+  const original = btn.textContent;
+  btn.textContent = '🩺 Running health check...';
+  btn.disabled = true;
+  try {
+    const d = await api('/api/health');
+    document.getElementById('hProvider').textContent = d.provider;
+    document.getElementById('hProvider').className = 'health-value health-ok';
+
+    // API key
+    const hKey = document.getElementById('hKey');
+    hKey.textContent = d.api_key_status;
+    hKey.className = 'health-value ' + (d.has_key ? 'health-ok' : 'health-warn');
+
+    // Live price
+    const hPrice = document.getElementById('hPrice');
+    if (d.price_ok && d.price) {
+      const cls = d.price.pct >= 0 ? 'up' : 'down';
+      const arrow = d.price.pct >= 0 ? '▲' : '▼';
+      hPrice.innerHTML = d.price.symbol + ' $' + d.price.current.toFixed(2) +
+        ' <span class="' + cls + '">' + arrow + ' ' + d.price.pct + '%</span>';
+    } else {
+      hPrice.textContent = d.price ? d.price.error : 'No stocks configured';
+      hPrice.className = 'health-price health-bad';
+    }
+
+    // Per-minute
+    const hMinute = document.getElementById('hMinute');
+    const min = d.minute || {};
+    if (min.limit_min) {
+      hMinute.textContent = (min.used_min || 0) + ' / ' + min.limit_min;
+      hMinute.className = 'health-value health-ok';
+    } else {
+      hMinute.textContent = 'unlimited';
+      hMinute.className = 'health-value health-ok';
+    }
+
+    // Per-day (use provider-reported usage when available)
+    const hDay = document.getElementById('hDay');
+    const pu = d.provider_usage;
+    if (pu && pu.daily_limit) {
+      hDay.textContent = pu.daily_used + ' / ' + pu.daily_limit;
+      hDay.className = 'health-value health-ok';
+    } else {
+      hDay.textContent = 'unlimited';
+      hDay.className = 'health-value health-ok';
+    }
+
+    // Telegram
+    const hTelegram = document.getElementById('hTelegram');
+    hTelegram.textContent = d.telegram_status;
+    hTelegram.className = 'health-value ' + (d.telegram_ok ? 'health-ok' : 'health-warn');
+
+    // Stocks
+    document.getElementById('hStocks').textContent = d.stock_count + ' stock(s)';
+    document.getElementById('hStocks').className = 'health-value health-ok';
+
+    // Monitoring
+    const hMonitoring = document.getElementById('hMonitoring');
+    hMonitoring.textContent = d.monitoring_status;
+    hMonitoring.className = 'health-value ' + (d.enabled ? 'health-ok' : 'health-warn');
+  } catch(e) {
+    showMsg('❌ Health check failed: ' + e, 'err');
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
+  }
 }
 
 async function refreshUsage(doFetch) {
