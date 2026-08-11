@@ -1045,16 +1045,20 @@ async function getChatId() {
     return;
   }
   showMsg('🔍 Looking for your chat id...', 'ok');
-  const r = await api('/api/chatid', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ telegram_bot_token: token })
-  });
-  if (r.ok) {
-    document.getElementById('chatid').value = r.chat_id;
-    showMsg('✅ Found your chat id: ' + r.chat_id, 'ok');
-  } else {
-    showMsg('❌ ' + (r.error || 'Could not find chat id'), 'err');
+  try {
+    const r = await api('/api/chatid', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telegram_bot_token: token })
+    });
+    if (r.ok) {
+      document.getElementById('chatid').value = r.chat_id;
+      showMsg('✅ Found your chat id: ' + r.chat_id, 'ok');
+    } else {
+      showMsg('❌ ' + (r.error || 'Could not find chat id'), 'err');
+    }
+  } catch(e) {
+    showMsg('❌ Could not reach Telegram. Check your internet and that the token is correct.', 'err');
   }
 }
 
@@ -1107,7 +1111,7 @@ function showMsg(text, type) {
   const el = document.getElementById('msg');
   el.textContent = text;
   el.className = 'msg ' + type;
-  setTimeout(() => { el.className = 'msg'; }, 4000);
+  setTimeout(() => { el.className = 'msg'; }, 8000);
 }
 
 load();
@@ -1122,8 +1126,14 @@ refreshUsage();
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://127.0.0.1:{PORT}"
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        # Port already in use - the app is probably already running. Just open it.
+        print(f"App already running at {url}. Opening it in your browser.")
+        webbrowser.open(url)
+        return
     print("PortfolioIsMoving setup running at", url)
     print("Close this window when done - monitoring runs in the cloud.")
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
