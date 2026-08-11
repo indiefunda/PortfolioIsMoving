@@ -103,15 +103,27 @@ def save_state(state):
 # from Yahoo Finance (free, unlimited, great coverage of illiquid tickers).
 TWELVE_BATCH_SIZE = 8  # /price is 1 credit/symbol; 8 fits the 8/min limit
 
+# Latest Twelve Data usage info captured from response headers (free, no extra call).
+# Structure: {"used_min": int, "left_min": int, "daily_used": int, "daily_limit": int}
+last_usage = {}
+
+
+def get_last_usage():
+    """Return the latest usage info captured from price-call headers."""
+    return last_usage
+
 
 def _fetch_twelvedata(symbols, api_key):
     """
     Twelve Data - real-time live price (via /price, 1 credit/symbol).
     Previous close comes from Yahoo (free). Returns {symbol: (current, prev_close)}.
     """
+    global last_usage
     result = {}
     # Step 1: live prices from Twelve Data /price (cheap, real-time)
     live = {}
+    used_min = None
+    left_min = None
     for i in range(0, len(symbols), TWELVE_BATCH_SIZE):
         chunk = symbols[i:i + TWELVE_BATCH_SIZE]
         try:
@@ -120,6 +132,12 @@ def _fetch_twelvedata(symbols, api_key):
                 timeout=15,
             )
             resp.raise_for_status()
+            # Free usage info from response headers (no extra API call).
+            try:
+                used_min = int(resp.headers.get("api-credits-used", used_min or 0))
+                left_min = int(resp.headers.get("api-credits-left", left_min or 0))
+            except (ValueError, TypeError):
+                pass
             data = resp.json()
             # Batch returns {symbol: {"price": "..."}}; single returns {"price": "..."}
             if isinstance(data, dict) and "price" in data:
@@ -130,6 +148,13 @@ def _fetch_twelvedata(symbols, api_key):
                         live[sym.upper()] = float(q["price"])
         except Exception as exc:
             print(f"  [error] twelvedata {chunk}: {exc}", file=sys.stderr)
+
+    if used_min is not None and left_min is not None:
+        last_usage = {
+            "used_min": used_min,
+            "left_min": left_min,
+            "limit_min": used_min + left_min,
+        }
 
     if not live:
         return result
@@ -291,12 +316,16 @@ def main():
     state = load_state()
     today = now_et.strftime("%Y-%m-%d")
     if state.get("date") != today:
-        state = {"date": today, "alerted": []}
+        state = {"date": today, "alerted": [], "daily_usage": 0}
 
     print(f"[{now_et.strftime('%Y-%m-%d %H:%M %Z')}] Checking {len(tickers)} ticker(s) "
           f"via {provider}...")
 
     prices = get_prices(tickers, provider=provider, api_key=api_key)
+
+    # Track daily usage: Twelve Data /price uses 1 credit per symbol checked.
+    if provider == "twelvedata" and api_key:
+        state["daily_usage"] = int(state.get("daily_usage", 0)) + len(prices)
 
     for symbol in tickers:
         symbol = symbol.strip().upper()

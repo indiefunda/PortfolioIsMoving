@@ -140,6 +140,27 @@ class Handler(BaseHTTPRequestHandler):
             cur, prev = pair
             pct = ((cur - prev) / prev * 100.0) if prev else 0.0
             self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
+        elif parsed.path == "/api/usage":
+            import monitor
+            cfg = load_config()
+            secrets = load_secrets()
+            provider = cfg.get("provider", "twelvedata")
+            api_key = secrets.get("price_api_key", "")
+            # Per-minute usage captured free from price-call headers.
+            usage = monitor.get_last_usage()
+            # Daily usage tracked locally in state.json.
+            daily_usage = 0
+            try:
+                state = monitor.load_state()
+                daily_usage = int(state.get("daily_usage", 0))
+            except Exception:
+                pass
+            self._send_json({
+                "provider": provider,
+                "has_key": bool(api_key),
+                "minute": usage,
+                "daily": {"used": daily_usage, "limit": 800},
+            })
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -309,6 +330,19 @@ HTML = """<!DOCTYPE html>
     font-size: 13px; color: var(--accent);
   }
   .guide-text strong { color: var(--text); }
+  .usage-box { font-size: 13px; }
+  .usage-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .usage-label { width: 80px; color: var(--muted); font-size: 13px; }
+  .gauge {
+    flex: 1; height: 14px; background: var(--bg); border-radius: 8px;
+    border: 1px solid var(--border); overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%; border-radius: 8px; transition: width .4s ease;
+    background: linear-gradient(90deg, var(--green), var(--accent));
+  }
+  .gauge-fill.warn { background: linear-gradient(90deg, var(--amber), var(--red)); }
+  .usage-num { width: 70px; text-align: right; color: var(--text); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -424,6 +458,25 @@ HTML = """<!DOCTYPE html>
   </div>
 
   <div class="card">
+    <h2>📊 Usage (free-tier check)</h2>
+    <div id="usageBox" class="usage-box">
+      <div class="usage-row">
+        <span class="usage-label">Per minute</span>
+        <div class="gauge"><div class="gauge-fill" id="gaugeMin" style="width:0%"></div></div>
+        <span class="usage-num" id="usageMinText">— / 8</span>
+      </div>
+      <div class="usage-row">
+        <span class="usage-label">Per day</span>
+        <div class="gauge"><div class="gauge-fill" id="gaugeDay" style="width:0%"></div></div>
+        <span class="usage-num" id="usageDayText">— / 800</span>
+      </div>
+      <div class="hint" id="usageHint">Live usage from your price provider's free tier.
+      Per-minute resets every minute; per-day resets at midnight UTC.</div>
+      <button class="btn-ghost" style="margin-top:8px" onclick="refreshUsage()">↻ Refresh usage</button>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>4. Telegram notification</h2>
     <div style="margin-bottom:12px">
       <label>Bot Token</label>
@@ -535,6 +588,40 @@ function updateStatus() {
   el.className = 'status ' + (on ? 'on' : 'off');
 }
 
+async function refreshUsage() {
+  try {
+    const d = await api('/api/usage');
+    const min = d.minute || {};
+    const daily = d.daily || {};
+    const minUsed = min.used_min || 0;
+    const minLimit = min.limit_min || 8;
+    const dayUsed = daily.used || 0;
+    const dayLimit = daily.limit || 800;
+
+    const minPct = Math.min(100, (minUsed / minLimit) * 100);
+    document.getElementById('gaugeMin').style.width = minPct + '%';
+    document.getElementById('gaugeMin').className = 'gauge-fill' + (minPct > 75 ? ' warn' : '');
+    document.getElementById('usageMinText').textContent = minUsed + ' / ' + minLimit;
+
+    const dayPct = Math.min(100, (dayUsed / dayLimit) * 100);
+    document.getElementById('gaugeDay').style.width = dayPct + '%';
+    document.getElementById('gaugeDay').className = 'gauge-fill' + (dayPct > 75 ? ' warn' : '');
+    document.getElementById('usageDayText').textContent = dayUsed + ' / ' + dayLimit;
+
+    const hint = document.getElementById('usageHint');
+    if (!d.has_key && d.provider !== 'yahoo') {
+      hint.textContent = 'No API key set — using Yahoo fallback (free, unlimited). Add a key for real-time + usage tracking.';
+    } else if (d.provider === 'yahoo') {
+      hint.textContent = 'Yahoo Finance is free and unlimited — no usage limits apply.';
+    } else {
+      hint.textContent = 'Live usage from ' + d.provider + ' free tier. Per-minute resets each minute; per-day resets at midnight UTC.';
+    }
+  } catch(e) {
+    document.getElementById('usageMinText').textContent = '—';
+    document.getElementById('usageDayText').textContent = '—';
+  }
+}
+
 async function testTelegram() {
   const token = document.getElementById('token').value.trim();
   const chatid = document.getElementById('chatid').value.trim();
@@ -580,6 +667,7 @@ function showMsg(text, type) {
 }
 
 load();
+refreshUsage();
 </script>
 </body>
 </html>
