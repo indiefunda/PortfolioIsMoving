@@ -36,11 +36,11 @@ EASTERN = pytz.timezone("US/Eastern")
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 # ---- Price provider endpoints ----
-# Twelve Data (default): real-time US stocks, batch endpoint, free tier = 8/min, 800/day
-TWELVE_QUOTE = "https://api.twelvedata.com/quote?symbol={symbols}&apikey={key}"
+# Twelve Data (default): real-time US stocks. /price = live price (1 credit/symbol).
+TWELVE_PRICE = "https://api.twelvedata.com/price?symbol={symbols}&apikey={key}"
 # Finnhub: real-time US stocks, free tier = 60/min
 FINNHUB_QUOTE = "https://finnhub.io/api/v1/quote?symbol={symbol}&token={key}"
-# Yahoo Finance (fallback): ~15 min delayed, unlimited, no key
+# Yahoo Finance (fallback + prev close): ~15 min delayed, unlimited, no key
 YAHOO_QUOTE = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
 
 HEADERS = {
@@ -96,28 +96,53 @@ def save_state(state):
 # ---------------------------------------------------------------------------
 # Price fetching (multiple free providers)
 # ---------------------------------------------------------------------------
+# Twelve Data free tier: 8 API credits/min, 800/day.
+#   /price  = 1 credit/symbol (live price only)  <- cheap, use for live price
+#   /quote  = 2 credits/symbol (price + prev close)
+# Strategy: get LIVE price from Twelve Data /price (cheap), and PREVIOUS CLOSE
+# from Yahoo Finance (free, unlimited, great coverage of illiquid tickers).
+TWELVE_BATCH_SIZE = 8  # /price is 1 credit/symbol; 8 fits the 8/min limit
+
+
 def _fetch_twelvedata(symbols, api_key):
-    """Twelve Data - real-time, batch. Returns {symbol: (current, prev_close)}."""
+    """
+    Twelve Data - real-time live price (via /price, 1 credit/symbol).
+    Previous close comes from Yahoo (free). Returns {symbol: (current, prev_close)}.
+    """
     result = {}
-    try:
-        resp = requests.get(
-            TWELVE_QUOTE.format(symbols=",".join(symbols), key=api_key),
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        # Batch returns a dict keyed by symbol; single returns one object.
-        items = data if isinstance(data, dict) and "symbol" not in data else {symbols[0]: data}
-        for sym, q in items.items():
-            if not isinstance(q, dict):
-                continue
-            current = q.get("close")
-            prev_close = q.get("previous_close")
-            if current is None or prev_close is None:
-                continue
-            result[sym.upper()] = (float(current), float(prev_close))
-    except Exception as exc:
-        print(f"  [error] twelvedata: {exc}", file=sys.stderr)
+    # Step 1: live prices from Twelve Data /price (cheap, real-time)
+    live = {}
+    for i in range(0, len(symbols), TWELVE_BATCH_SIZE):
+        chunk = symbols[i:i + TWELVE_BATCH_SIZE]
+        try:
+            resp = requests.get(
+                TWELVE_PRICE.format(symbols=",".join(chunk), key=api_key),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Batch returns {symbol: {"price": "..."}}; single returns {"price": "..."}
+            if isinstance(data, dict) and "price" in data:
+                live[chunk[0].upper()] = float(data["price"])
+            else:
+                for sym, q in data.items():
+                    if isinstance(q, dict) and "price" in q:
+                        live[sym.upper()] = float(q["price"])
+        except Exception as exc:
+            print(f"  [error] twelvedata {chunk}: {exc}", file=sys.stderr)
+
+    if not live:
+        return result
+
+    # Step 2: previous close from Yahoo (free, unlimited, good illiquid coverage)
+    prev = _fetch_yahoo(list(live.keys()))
+
+    # Combine: live price (Twelve) + prev close (Yahoo)
+    for sym, cur in live.items():
+        if sym in prev:
+            result[sym] = (cur, prev[sym][1])
+        else:
+            result[sym] = (cur, None)
     return result
 
 

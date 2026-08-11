@@ -151,6 +151,21 @@ Prices are checked every 10 minutes. The delay depends on your **price source**:
 
 Either is plenty for stocks that move over hours.
 
+**Will it work for illiquid / small / Chinese-listed stocks (like HUIZ, YB, LX)?**
+Yes — this was tested. The app uses a **hybrid** approach:
+- **Live price** comes from your chosen real-time provider (Twelve Data / Finnhub).
+- **Previous close** comes from **Yahoo Finance** (free, unlimited, great coverage
+  of small and foreign-listed stocks).
+
+All of **HUIZ** (Huize), **YB** (Yuanbao), and **LX** (LexinFintech) returned real
+prices in testing. These are US-listed (NASDAQ) stocks, so they're covered.
+
+**How many stocks can I track for free?**
+- Twelve Data free tier: **800 requests/day**, and the app uses **1 credit per stock**
+  for the live price (the previous close is free via Yahoo).
+- With checks every 10 minutes (~39/day), you can easily track **dozens of stocks**
+  within the free limit.
+
 **I get an alert — will I get it again and again?**
 No. Each stock alerts **once per day**. If it keeps moving, you won't be spammed.
 
