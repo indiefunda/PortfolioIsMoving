@@ -73,12 +73,21 @@ This is how alerts reach your phone. **Free, ~2 minutes.**
 5. It asks for a **username** — must end in `bot`, e.g. `mystockalerts_bot`.
 6. BotFather replies with a **token** like `123456789:AAH...` — **copy it**.
 
-Now get your **chat id**:
-7. In Telegram, open **your new bot** and press **Start** (send it any message).
-8. On your computer, open a browser and go to:
-   `https://api.telegram.org/bot<PASTE_YOUR_TOKEN_HERE>/getUpdates`
-   (replace `<PASTE_YOUR_TOKEN_HERE>` with your actual token)
-9. Look for `"chat":{"id":123456789` — that number is your **chat id**. Copy it.
+Now get your **chat id** (your personal number for receiving messages):
+7. In Telegram, open **your new bot** and press **Start** (send it any message,
+   like "hi"). This tells Telegram you want to talk to the bot.
+8. Now go to the **app** (still open in your browser). In the **Telegram** box,
+   paste your **bot token**, then click the **"🪪 Get my chat id"** button.
+   The app will fill in your **chat id** automatically.
+   - If the button doesn't work, see the box below.
+
+> 📌 **Manual way (only if the button doesn't work):**
+> 1. Open a new browser tab and go to:
+>    `https://api.telegram.org/botYOUR_TOKEN_HERE/getUpdates`
+>    (replace `YOUR_TOKEN_HERE` with your actual token)
+> 2. You'll see a page of text. Look for this pattern: `"chat":{"id":123456789`
+> 3. The number right after `"id":` is your **chat id**. Copy it and paste it
+>    into the app's **Chat ID** box.
 
 ---
 
@@ -92,9 +101,9 @@ In the app (still open in your browser), fill in the boxes:
 2. **Alert threshold** — leave at **5** (means "alert when it moves more than 5%").
 3. **Price source** — choose your provider (Finnhub or Twelve Data). Paste your
    API key from Part 3.
-4. **Telegram** — paste your **bot token** and **chat id** from Part 4.
-   - Click **"📲 Send test alert"** — you should get a Telegram message on your phone.
-     If not, double-check the token and chat id.
+4. **Telegram** — paste your **bot token**, click **"🪪 Get my chat id"** to fill
+   the chat id, then click **"📲 Send test alert"** — you should get a Telegram
+   message on your phone. If not, double-check the token and chat id.
 5. **Enable monitoring** — switch it **ON**.
 6. Click **🩺 Run health check** at the top — it should all show green/OK.
 7. Click **💾 Save portfolio**.

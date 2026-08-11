@@ -319,6 +319,34 @@ class Handler(BaseHTTPRequestHandler):
             save_config(cfg)
             save_secrets(secrets)
             self._send_json({"ok": True, "config": cfg})
+        elif parsed.path == "/api/chatid":
+            # Auto-detect the user's Telegram chat id from their bot token.
+            token = (payload.get("telegram_bot_token") or "").strip()
+            if not token:
+                self._send_json({"ok": False, "error": "Enter your bot token first."}, 400)
+                return
+            try:
+                import requests as _r
+                resp = _r.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+                results = data.get("result", [])
+                chat_id = None
+                for update in results:
+                    msg = update.get("message") or update.get("edited_message") or {}
+                    c = msg.get("chat") or {}
+                    if c.get("id") is not None:
+                        chat_id = c["id"]
+                        break
+                if chat_id is not None:
+                    self._send_json({"ok": True, "chat_id": chat_id})
+                else:
+                    self._send_json({
+                        "ok": False,
+                        "error": "No message found yet. Open your bot in Telegram, press Start, and send it any message (like 'hi'), then try again.",
+                    })
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"Could not reach Telegram: {exc}"})
         elif parsed.path == "/api/test":
             token = (payload.get("telegram_bot_token") or "").strip()
             chat_id = (payload.get("telegram_chat_id") or "").strip()
@@ -555,10 +583,9 @@ HTML = """<!DOCTYPE html>
         <li>Search for <strong>@BotFather</strong> (official bot, blue checkmark).</li>
         <li>Send <code>/newbot</code>, pick a name, then a username ending in <code>bot</code>.</li>
         <li>BotFather gives you a <strong>token</strong> like <code>123456789:AAH...</code> — copy it.</li>
-        <li>Open your new bot, press <strong>Start</strong>.</li>
-        <li>In a browser go to
-        <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> and find your
-        <strong>chat id</strong> (a number inside <code>"chat":{"id":123}</code>).</li>
+        <li>Open your new bot, press <strong>Start</strong>, send it any message (like "hi").</li>
+        <li>Back in this app, paste your token and click <strong>"🪪 Get my chat id"</strong>
+        — it fills in your chat id for you. No need to read raw text.</li>
       </ol>
 
       <p><strong>5. To finish, connect to GitHub</strong> so it runs 24/7 for free.
@@ -664,7 +691,10 @@ HTML = """<!DOCTYPE html>
       <label>Chat ID</label>
       <input id="chatid" type="text" placeholder="e.g. 123456789">
     </div>
-    <button class="btn-ghost" onclick="testTelegram()">📲 Send test alert (shows live stats)</button>
+    <button class="btn-ghost" onclick="getChatId()">🪪 Get my chat id (auto)</button>
+    <div class="hint">Paste your token above, press <strong>Start</strong> on your bot
+    in Telegram, then click this. It fills in your chat id for you.</div>
+    <button class="btn-ghost" style="margin-top:8px" onclick="testTelegram()">📲 Send test alert (shows live stats)</button>
     <div class="hint">This sends a real Telegram message with your first stock's live
     move vs its previous close. Great for checking everything works.</div>
   </div>
@@ -894,6 +924,26 @@ async function refreshUsage(doFetch) {
   } catch(e) {
     document.getElementById('usageMinText').textContent = '—';
     document.getElementById('usageDayText').textContent = '—';
+  }
+}
+
+async function getChatId() {
+  const token = document.getElementById('token').value.trim();
+  if (!token) {
+    showMsg('❌ First paste your bot token in the box above.', 'err');
+    return;
+  }
+  showMsg('🔍 Looking for your chat id...', 'ok');
+  const r = await api('/api/chatid', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegram_bot_token: token })
+  });
+  if (r.ok) {
+    document.getElementById('chatid').value = r.chat_id;
+    showMsg('✅ Found your chat id: ' + r.chat_id, 'ok');
+  } else {
+    showMsg('❌ ' + (r.error || 'Could not find chat id'), 'err');
   }
 }
 
