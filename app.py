@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
     "tickers": [],
     "threshold_pct": 5.0,
     "enabled": False,
+    "provider": "twelvedata",  # twelvedata (default) | finnhub | yahoo
 }
 
 # ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@ def save_config(config):
 
 
 def load_secrets():
-    return _read_json(SECRETS_FILE, {"telegram_bot_token": "", "telegram_chat_id": ""})
+    return _read_json(SECRETS_FILE, {"telegram_bot_token": "", "telegram_chat_id": "", "price_api_key": ""})
 
 
 def save_secrets(secrets):
@@ -127,10 +128,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "no symbol"}, 400)
                 return
             import monitor
-            cur, prev = monitor.get_price_and_prev_close(symbol)
-            if cur is None:
-                self._send_json({"error": f"Could not fetch {symbol}"}, 502)
+            cfg = load_config()
+            secrets = load_secrets()
+            provider = cfg.get("provider", "twelvedata")
+            api_key = secrets.get("price_api_key", "")
+            prices = monitor.get_prices([symbol], provider=provider, api_key=api_key)
+            pair = prices.get(symbol)
+            if pair is None:
+                self._send_json({"error": f"Could not fetch {symbol} via {provider}"}, 502)
                 return
+            cur, prev = pair
             pct = ((cur - prev) / prev * 100.0) if prev else 0.0
             self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
         else:
@@ -157,10 +164,16 @@ class Handler(BaseHTTPRequestHandler):
                     pass
             if "enabled" in payload:
                 cfg["enabled"] = bool(payload["enabled"])
+            if "provider" in payload:
+                p = payload["provider"].strip().lower()
+                if p in ("twelvedata", "finnhub", "yahoo"):
+                    cfg["provider"] = p
             if "telegram_bot_token" in payload:
                 secrets["telegram_bot_token"] = payload["telegram_bot_token"].strip()
             if "telegram_chat_id" in payload:
                 secrets["telegram_chat_id"] = payload["telegram_chat_id"].strip()
+            if "price_api_key" in payload:
+                secrets["price_api_key"] = payload["price_api_key"].strip()
             save_config(cfg)
             save_secrets(secrets)
             self._send_json({"ok": True, "config": cfg})
@@ -170,8 +183,36 @@ class Handler(BaseHTTPRequestHandler):
             if not token or not chat_id:
                 self._send_json({"ok": False, "error": "Enter both token and chat id first."}, 400)
                 return
-            ok, msg = send_telegram(token, chat_id, "✅ PortfolioIsMoving test alert works!")
-            self._send_json({"ok": ok, "error": msg if not ok else None})
+            import monitor
+            cfg = load_config()
+            secrets = load_secrets()
+            provider = cfg.get("provider", "twelvedata")
+            api_key = secrets.get("price_api_key", "")
+            tickers = cfg.get("tickers", [])
+            symbol = tickers[0].strip().upper() if tickers else "AAPL"
+
+            # Fetch a live price to include real stats in the test alert.
+            prices = monitor.get_prices([symbol], provider=provider, api_key=api_key)
+            pair = prices.get(symbol)
+
+            if pair:
+                cur, prev = pair
+                pct = ((cur - prev) / prev * 100.0) if prev else 0.0
+                arrow = "▲" if pct >= 0 else "▼"
+                msg = (
+                    f"✅ TEST ALERT (via {provider})\n"
+                    f"{symbol} has moved {arrow} {abs(pct):.1f}% right now\n"
+                    f"Price: ${cur:.2f}  |  Prev close: ${prev:.2f}\n"
+                    f"Compared to the last trading day's close."
+                )
+            else:
+                msg = (
+                    f"✅ TEST ALERT (via {provider})\n"
+                    f"Could not fetch {symbol} price — check your API key/provider.\n"
+                    f"If this keeps failing, try switching provider in the setup page."
+                )
+            ok, err = send_telegram(token, chat_id, msg)
+            self._send_json({"ok": ok, "error": err if not ok else None, "message": msg})
         else:
             self._send_json({"error": "not found"}, 404)
 
@@ -212,6 +253,12 @@ HTML = """<!DOCTYPE html>
     color: var(--text); font-size: 14px;
   }
   input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  select {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text); font-size: 14px;
+  }
+  select:focus { outline: 2px solid var(--accent); border-color: transparent; }
   .row { display: flex; gap: 8px; margin-bottom: 12px; }
   .row input { flex: 1; }
   button {
@@ -314,8 +361,8 @@ HTML = """<!DOCTYPE html>
 
       <p><strong>6. Limitations (be honest with yourself):</strong></p>
       <ul>
-        <li>Free price data is about <strong>15 minutes delayed</strong>. Good for stocks
-        that move over hours, not for split-second trading.</li>
+        <li><strong>Delay depends on your data provider.</strong> Twelve Data and Finnhub
+        are <strong>real-time</strong> (best). Yahoo is ~15 min delayed. All are free.</li>
         <li>Checks happen <strong>every 10 minutes</strong>, during US market hours
         (Mon–Fri, 9:30am–4pm Eastern).</li>
         <li>Each stock alerts <strong>once per day</strong> — you won't be spammed.</li>
@@ -329,8 +376,10 @@ HTML = """<!DOCTYPE html>
         tick <strong>"Add Python to PATH"</strong> during install. Then run start.bat again.</li>
         <li><strong>Test alert doesn't arrive?</strong> Double-check the token and chat id
         are pasted exactly (no spaces). Make sure you pressed <strong>Start</strong> on your bot.</li>
+        <li><strong>Test alert arrives but says "could not fetch price"?</strong> Your API key
+        may be wrong, or the provider is down. Try switching the provider in the setup page.</li>
         <li><strong>No alerts during the day?</strong> Check your GitHub Actions log — see
-        README. Common cause: you forgot to add the two secrets, or monitoring is off.</li>
+        README. Common cause: you forgot to add the secrets, or monitoring is off.</li>
         <li><strong>Still stuck?</strong> Re-read the README step by step, or ask whoever
         gave you this app.</li>
       </ul>
@@ -357,7 +406,25 @@ HTML = """<!DOCTYPE html>
   </div>
 
   <div class="card">
-    <h2>3. Telegram notification</h2>
+    <h2>3. Price source (data provider)</h2>
+    <div style="margin-bottom:12px">
+      <label>Provider</label>
+      <select id="provider" onchange="updateProviderUI()">
+        <option value="twelvedata">Twelve Data — real-time (recommended)</option>
+        <option value="finnhub">Finnhub — real-time</option>
+        <option value="yahoo">Yahoo Finance — ~15 min delayed, no key</option>
+      </select>
+    </div>
+    <div style="margin-bottom:12px" id="apikeyRow">
+      <label>Free API key (Twelve Data / Finnhub)</label>
+      <input id="apikey" class="secret" type="text" placeholder="paste your free API key">
+      <div class="hint">Get a free key: Twelve Data → twelvedata.com, Finnhub → finnhub.io.
+      Yahoo needs no key. If the key is empty, it falls back to Yahoo.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4. Telegram notification</h2>
     <div style="margin-bottom:12px">
       <label>Bot Token</label>
       <input id="token" class="secret" type="text" placeholder="123456789:AAH...">
@@ -366,12 +433,13 @@ HTML = """<!DOCTYPE html>
       <label>Chat ID</label>
       <input id="chatid" type="text" placeholder="e.g. 123456789">
     </div>
-    <button class="btn-ghost" onclick="testTelegram()">Send test alert</button>
-    <div class="hint">Need help? See the README. Token &amp; chat id stay on this computer.</div>
+    <button class="btn-ghost" onclick="testTelegram()">📲 Send test alert (shows live stats)</button>
+    <div class="hint">This sends a real Telegram message with your first stock's live
+    move vs its previous close. Great for checking everything works.</div>
   </div>
 
   <div class="card">
-    <h2>4. Enable monitoring</h2>
+    <h2>5. Enable monitoring</h2>
     <div class="toggle-row">
       <span class="status" id="statusText">Loading...</span>
       <label class="switch">
@@ -400,10 +468,18 @@ async function load() {
   tickers = data.config.tickers || [];
   document.getElementById('threshold').value = data.config.threshold_pct;
   document.getElementById('enabledToggle').checked = !!data.config.enabled;
+  document.getElementById('provider').value = data.config.provider || 'twelvedata';
+  document.getElementById('apikey').value = data.secrets.price_api_key || '';
   document.getElementById('token').value = data.secrets.telegram_bot_token || '';
   document.getElementById('chatid').value = data.secrets.telegram_chat_id || '';
   renderChips();
   updateStatus();
+  updateProviderUI();
+}
+
+function updateProviderUI() {
+  const p = document.getElementById('provider').value;
+  document.getElementById('apikeyRow').style.display = (p === 'yahoo') ? 'none' : 'block';
 }
 
 function toggleGuide() {
@@ -462,6 +538,10 @@ function updateStatus() {
 async function testTelegram() {
   const token = document.getElementById('token').value.trim();
   const chatid = document.getElementById('chatid').value.trim();
+  if (!token || !chatid) {
+    showMsg('❌ Enter your Telegram token and chat id first.', 'err');
+    return;
+  }
   showMsg('Sending test alert...', 'ok');
   const r = await api('/api/test', {
     method: 'POST',
@@ -477,10 +557,13 @@ async function save() {
   const enabled = document.getElementById('enabledToggle').checked;
   const token = document.getElementById('token').value.trim();
   const chatid = document.getElementById('chatid').value.trim();
+  const provider = document.getElementById('provider').value;
+  const apikey = document.getElementById('apikey').value.trim();
   const r = await api('/api/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tickers, threshold_pct: threshold, enabled, telegram_bot_token: token, telegram_chat_id: chatid })
+    body: JSON.stringify({ tickers, threshold_pct: threshold, enabled, provider,
+      telegram_bot_token: token, telegram_chat_id: chatid, price_api_key: apikey })
   });
   if (r.ok) {
     showMsg('✅ Saved! ' + tickers.length + ' ticker(s), threshold ' + threshold + '%.', 'ok');

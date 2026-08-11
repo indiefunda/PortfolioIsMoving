@@ -5,7 +5,10 @@ PortfolioIsMoving - free stock movement monitor.
 Checks configured stocks against their previous trading day's close and sends
 a Telegram alert when a stock moves more than the configured threshold.
 
-Price source : Yahoo Finance (free, no API key)
+Price sources (choose in app.py):
+  - Twelve Data (default): real-time US stocks, batch endpoint, free
+  - Finnhub:              real-time US stocks, free
+  - Yahoo Finance:        ~15 min delayed, unlimited, no key (automatic fallback)
 Alerts      : Telegram bot (free)
 """
 
@@ -32,7 +35,12 @@ EASTERN = pytz.timezone("US/Eastern")
 # Telegram API
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
-# Yahoo Finance quote endpoint (free, unofficial)
+# ---- Price provider endpoints ----
+# Twelve Data (default): real-time US stocks, batch endpoint, free tier = 8/min, 800/day
+TWELVE_QUOTE = "https://api.twelvedata.com/quote?symbol={symbols}&apikey={key}"
+# Finnhub: real-time US stocks, free tier = 60/min
+FINNHUB_QUOTE = "https://finnhub.io/api/v1/quote?symbol={symbol}&token={key}"
+# Yahoo Finance (fallback): ~15 min delayed, unlimited, no key
 YAHOO_QUOTE = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
 
 HEADERS = {
@@ -42,6 +50,9 @@ HEADERS = {
         "Chrome/120.0 Safari/537.36"
     )
 }
+
+# Default provider if none configured. "twelvedata" = real-time + batch (best fit).
+DEFAULT_PROVIDER = "twelvedata"
 
 
 # ---------------------------------------------------------------------------
@@ -83,40 +94,95 @@ def save_state(state):
 
 
 # ---------------------------------------------------------------------------
-# Price fetching (Yahoo Finance)
+# Price fetching (multiple free providers)
 # ---------------------------------------------------------------------------
-def get_price_and_prev_close(symbol):
-    """
-    Fetch current price and previous trading day close for a symbol.
-    Returns (current_price, prev_close) or (None, None) on failure.
-    """
-    url = YAHOO_QUOTE.format(symbol=symbol)
+def _fetch_twelvedata(symbols, api_key):
+    """Twelve Data - real-time, batch. Returns {symbol: (current, prev_close)}."""
+    result = {}
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(
+            TWELVE_QUOTE.format(symbols=",".join(symbols), key=api_key),
+            timeout=15,
+        )
         resp.raise_for_status()
         data = resp.json()
-
-        result = data["chart"]["result"][0]
-        meta = result["meta"]
-        closes = result.get("indicators", {}).get("quote", [{}])[0].get("close", [])
-
-        current = meta.get("regularMarketPrice")
-        if current is None and closes:
-            # Fall back to last close in the series
-            current = [c for c in closes if c is not None][-1]
-
-        # Previous close: use the second-to-last non-None close, else meta
-        prev_close = None
-        valid = [c for c in closes if c is not None]
-        if len(valid) >= 2:
-            prev_close = valid[-2]
-        if prev_close is None:
-            prev_close = meta.get("chartPreviousClose") or meta.get("previousClose")
-
-        return current, prev_close
+        # Batch returns a dict keyed by symbol; single returns one object.
+        items = data if isinstance(data, dict) and "symbol" not in data else {symbols[0]: data}
+        for sym, q in items.items():
+            if not isinstance(q, dict):
+                continue
+            current = q.get("close")
+            prev_close = q.get("previous_close")
+            if current is None or prev_close is None:
+                continue
+            result[sym.upper()] = (float(current), float(prev_close))
     except Exception as exc:
-        print(f"  [error] {symbol}: {exc}", file=sys.stderr)
-        return None, None
+        print(f"  [error] twelvedata: {exc}", file=sys.stderr)
+    return result
+
+
+def _fetch_finnhub(symbols, api_key):
+    """Finnhub - real-time, one call per symbol. Returns {symbol: (current, prev_close)}."""
+    result = {}
+    for sym in symbols:
+        try:
+            resp = requests.get(
+                FINNHUB_QUOTE.format(symbol=sym, key=api_key), timeout=15
+            )
+            resp.raise_for_status()
+            q = resp.json()
+            current = q.get("c")
+            prev_close = q.get("pc")
+            if current is None or prev_close is None or current == 0:
+                continue
+            result[sym.upper()] = (float(current), float(prev_close))
+        except Exception as exc:
+            print(f"  [error] finnhub {sym}: {exc}", file=sys.stderr)
+    return result
+
+
+def _fetch_yahoo(symbols):
+    """Yahoo Finance - ~15 min delayed, unlimited, no key. Returns {symbol: (current, prev_close)}."""
+    result = {}
+    for sym in symbols:
+        try:
+            resp = requests.get(YAHOO_QUOTE.format(symbol=sym), headers=HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            meta = data["chart"]["result"][0]["meta"]
+            closes = data["chart"]["result"][0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+            current = meta.get("regularMarketPrice")
+            if current is None and closes:
+                current = [c for c in closes if c is not None][-1]
+            prev_close = None
+            valid = [c for c in closes if c is not None]
+            if len(valid) >= 2:
+                prev_close = valid[-2]
+            if prev_close is None:
+                prev_close = meta.get("chartPreviousClose") or meta.get("previousClose")
+            if current is None or prev_close is None:
+                continue
+            result[sym.upper()] = (float(current), float(prev_close))
+        except Exception as exc:
+            print(f"  [error] yahoo {sym}: {exc}", file=sys.stderr)
+    return result
+
+
+def get_prices(symbols, provider=DEFAULT_PROVIDER, api_key=""):
+    """
+    Fetch current price and previous-close for a list of symbols.
+    Returns {symbol: (current, prev_close)}. Falls back gracefully.
+    """
+    symbols = [s.strip().upper() for s in symbols if s.strip()]
+    if not symbols:
+        return {}
+
+    if provider == "twelvedata" and api_key:
+        return _fetch_twelvedata(symbols, api_key)
+    if provider == "finnhub" and api_key:
+        return _fetch_finnhub(symbols, api_key)
+    # Default / fallback: Yahoo (no key needed)
+    return _fetch_yahoo(symbols)
 
 
 # ---------------------------------------------------------------------------
@@ -176,9 +242,11 @@ def main():
 
     tickers = config.get("tickers", [])
     threshold = float(config.get("threshold_pct", 5.0))
+    provider = config.get("provider", DEFAULT_PROVIDER)
     secrets = load_secrets()
     token = os.environ.get("TELEGRAM_BOT_TOKEN") or secrets.get("telegram_bot_token", "")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID") or secrets.get("telegram_chat_id", "")
+    api_key = os.environ.get("PRICE_API_KEY") or secrets.get("price_api_key", "")
 
     if not tickers:
         print("No tickers configured. Run app.py to add some.")
@@ -186,6 +254,7 @@ def main():
     if not token or not chat_id:
         print("Telegram credentials missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID "
               "(cloud) or run app.py to enter them locally.")
+        return
 
     # Market-hours gate (skip when market closed)
     now_et = datetime.now(EASTERN)
@@ -199,14 +268,22 @@ def main():
     if state.get("date") != today:
         state = {"date": today, "alerted": []}
 
-    print(f"[{now_et.strftime('%Y-%m-%d %H:%M %Z')}] Checking {len(tickers)} ticker(s)...")
+    print(f"[{now_et.strftime('%Y-%m-%d %H:%M %Z')}] Checking {len(tickers)} ticker(s) "
+          f"via {provider}...")
+
+    prices = get_prices(tickers, provider=provider, api_key=api_key)
 
     for symbol in tickers:
         symbol = symbol.strip().upper()
         if not symbol:
             continue
 
-        current, prev_close = get_price_and_prev_close(symbol)
+        pair = prices.get(symbol)
+        if pair is None:
+            print(f"  - {symbol}: no data")
+            continue
+        current, prev_close = pair
+
         if current is None or prev_close is None or prev_close == 0:
             print(f"  - {symbol}: no data")
             continue

@@ -94,13 +94,19 @@ On the setup page:
 2. Click the **Fork** button (top-right). This makes a copy under **your** account.
 3. Wait a few seconds — you now have your own copy.
 
-### C. Tell GitHub your Telegram info (as "secrets")
+### C. Tell GitHub your info (as "secrets")
 1. On **your** copy's page, click **Settings** (top tab).
 2. In the left menu, click **Secrets and variables** → **Actions**.
 3. Click **New repository secret**.
 4. Name: `TELEGRAM_BOT_TOKEN` → paste your bot token → **Add secret**.
 5. Click **New repository secret** again.
 6. Name: `TELEGRAM_CHAT_ID` → paste your chat id → **Add secret**.
+7. **Optional but recommended:** if you use Twelve Data or Finnhub (real-time),
+   add a third secret:
+   - Name: `PRICE_API_KEY` → paste your free API key → **Add secret**.
+
+> If you don't add `PRICE_API_KEY`, the monitor automatically falls back to
+> Yahoo Finance (free, ~15 min delayed, no key needed).
 
 ### D. Make sure your stocks are in your copy
 Your `config_local.json` file (with your tickers) needs to be in your GitHub copy.
@@ -139,8 +145,11 @@ No. After setup, everything runs in the cloud. Turn your computer off.
 Yes. Telegram is free. GitHub Actions is free for public repos (this one is public).
 
 **How fast is the alert?**
-Prices are checked every 10 minutes. Free price data is about 15 minutes delayed,
-which is plenty for stocks that move over hours.
+Prices are checked every 10 minutes. The delay depends on your **price source**:
+- **Twelve Data** or **Finnhub** (free API key) → **real-time**, no delay.
+- **Yahoo Finance** (no key, default fallback) → ~15 minutes delayed.
+
+Either is plenty for stocks that move over hours.
 
 **I get an alert — will I get it again and again?**
 No. Each stock alerts **once per day**. If it keeps moving, you won't be spammed.
@@ -161,8 +170,8 @@ Yes, but then your computer must stay on during market hours. See `LOCAL_MODE.md
 |------|---------|
 | `app.py` | Local setup web page (run this via `start.bat`) |
 | `monitor.py` | The core checker (prices + Telegram alert) |
-| `config_local.json` | Your portfolio (tickers, threshold, enabled) — committed |
-| `secrets_local.json` | Your Telegram token + chat id — **git-ignored** |
+| `config_local.json` | Your portfolio (tickers, threshold, enabled, provider) — committed |
+| `secrets_local.json` | Telegram token, chat id, API key — **git-ignored** |
 | `start.bat` | **One-click launcher** — installs deps, opens the setup page |
 | `build_exe.bat` | *Optional:* build a single `.exe` (needs PyInstaller) |
 | `.github/workflows/monitor.yml` | Free 24/7 cloud scheduler |
