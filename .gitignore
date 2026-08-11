@@ -19,3 +19,6 @@ secrets_local.json
 # OS
 Thumbs.db
 .DS_Store
+
+# Generated zip packages (from MAKE_ZIP.bat)
+*.zip

@@ -25,11 +25,13 @@ if exist "%ZIPNAME%" del /f /q "%ZIPNAME%"
 
 echo  Staging files...
 mkdir "%STAGE%"
+mkdir "%STAGE%\.github\workflows"
 copy /y "app.py"            "%STAGE%\app.py"            >nul
 copy /y "monitor.py"        "%STAGE%\monitor.py"        >nul
 copy /y "start.bat"         "%STAGE%\start.bat"         >nul
 copy /y "requirements.txt"  "%STAGE%\requirements.txt"  >nul
 copy /y "README.md"         "%STAGE%\README.md"         >nul
+copy /y ".github\workflows\monitor.yml"  "%STAGE%\.github\workflows\monitor.yml"  >nul
 
 REM Write a clean starter config (no pre-set tickers) for the zip.
 echo {"tickers": [], "threshold_pct": 5.0, "enabled": false, "provider": "finnhub"} > "%STAGE%\config_local.json"
@@ -57,6 +59,7 @@ echo    - app.py, monitor.py  (the app)
 echo    - requirements.txt    (dependencies)
 echo    - README.md           (step-by-step guide)
 echo    - config_local.json   (clean starter, no tickers)
+echo    - .github\workflows\monitor.yml  (for the free 24/7 cloud monitor)
 echo.
 echo  It does NOT contain secrets or the .git folder.
 echo  Give this zip to a friend. They unzip, run start.bat,
