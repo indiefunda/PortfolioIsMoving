@@ -143,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
             cur, prev = pair
             pct = ((cur - prev) / prev * 100.0) if prev else 0.0
             # Track daily usage per-provider in state.json when a keyed provider is used.
-            if api_key and provider in ("finnhub", "twelvedata"):
+            if api_key and provider == "twelvedata":
                 state = monitor.load_state()
                 today = datetime.now(monitor.EASTERN).strftime("%Y-%m-%d")
                 if state.get("date") != today:
@@ -167,14 +167,15 @@ class Handler(BaseHTTPRequestHandler):
                 tickers = cfg.get("tickers", [])
                 if tickers:
                     monitor.get_prices([tickers[0]], provider=provider, api_key=api_key)
-                    # Record the fetch in per-provider daily usage.
-                    state = monitor.load_state()
-                    today = datetime.now(monitor.EASTERN).strftime("%Y-%m-%d")
-                    if state.get("date") != today:
-                        state = {"date": today, "alerted": [], "daily_usage": {}}
-                    usage_map = state.setdefault("daily_usage", {})
-                    usage_map[provider] = int(usage_map.get(provider, 0)) + 1
-                    monitor.save_state(state)
+                    # Record the fetch in per-provider daily usage (Twelve Data only).
+                    if provider == "twelvedata":
+                        state = monitor.load_state()
+                        today = datetime.now(monitor.EASTERN).strftime("%Y-%m-%d")
+                        if state.get("date") != today:
+                            state = {"date": today, "alerted": [], "daily_usage": {}}
+                        usage_map = state.setdefault("daily_usage", {})
+                        usage_map[provider] = int(usage_map.get(provider, 0)) + 1
+                        monitor.save_state(state)
             # Per-minute usage captured free from price-call headers.
             usage = monitor.get_last_usage()
             # Fetch the REAL usage the provider reports for this API key
@@ -191,15 +192,8 @@ class Handler(BaseHTTPRequestHandler):
                 used_min = usage.get("used_min") if usage.get("limit_min") == limit_min else None
                 minute = {"used_min": used_min, "left_min": (limit_min - used_min) if used_min is not None else None,
                           "limit_min": limit_min, "delay": "real-time"}
-                # Finnhub has no daily cap; report the local session counter.
-                daily_usage = 0
-                try:
-                    state = monitor.load_state()
-                    usage_map = state.get("daily_usage", {})
-                    daily_usage = int(usage_map.get("finnhub", 0)) if isinstance(usage_map, dict) else int(usage_map)
-                except Exception:
-                    pass
-                daily = {"used": daily_usage, "limit": None, "source": "session"}  # no daily cap
+                # Finnhub has no daily cap, so show unlimited (no daily counting).
+                daily = {"used": 0, "limit": None, "source": "unlimited"}  # no daily cap
             elif provider == "twelvedata" and has_key:
                 # Use the provider-reported real usage when available (persists
                 # across sessions and reflects ALL usage for this API key).

@@ -382,7 +382,8 @@ def main():
     prices = get_prices(tickers, provider=provider, api_key=api_key)
 
     # Track daily usage per-provider (each provider has its own quota).
-    if api_key and provider in ("finnhub", "twelvedata"):
+    # Only Twelve Data has a real daily cap; Finnhub has none, so skip it.
+    if api_key and provider == "twelvedata":
         usage = state.setdefault("daily_usage", {})
         usage[provider] = int(usage.get(provider, 0)) + len(prices)
 
