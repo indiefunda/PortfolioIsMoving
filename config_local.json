@@ -1,1 +1,1 @@
-{"tickers": ["HUIZ"], "threshold_pct": 5.0, "enabled": false, "provider": "twelvedata"}
+{"tickers": ["HUIZ","YB","LX"], "threshold_pct": 5.0, "enabled": false, "provider": "finnhub"}

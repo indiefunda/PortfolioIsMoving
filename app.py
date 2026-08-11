@@ -20,6 +20,7 @@ import json
 import os
 import threading
 import webbrowser
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -34,7 +35,7 @@ DEFAULT_CONFIG = {
     "tickers": [],
     "threshold_pct": 5.0,
     "enabled": False,
-    "provider": "twelvedata",  # twelvedata (default) | finnhub | yahoo
+    "provider": "finnhub",  # finnhub (default) | twelvedata | yahoo
 }
 
 # ---------------------------------------------------------------------------
@@ -130,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
             import monitor
             cfg = load_config()
             secrets = load_secrets()
-            provider = cfg.get("provider", "twelvedata")
+            provider = cfg.get("provider", "finnhub")
             api_key = secrets.get("price_api_key", "")
             prices = monitor.get_prices([symbol], provider=provider, api_key=api_key)
             pair = prices.get(symbol)
@@ -139,12 +140,23 @@ class Handler(BaseHTTPRequestHandler):
                 return
             cur, prev = pair
             pct = ((cur - prev) / prev * 100.0) if prev else 0.0
+            # Track daily usage in state.json when a keyed provider is used.
+            if api_key and provider in ("finnhub", "twelvedata"):
+                state = monitor.load_state()
+                today = datetime.now(monitor.EASTERN).strftime("%Y-%m-%d")
+                if state.get("date") != today:
+                    state = {"date": today, "alerted": [], "daily_usage": 0}
+                state["daily_usage"] = int(state.get("daily_usage", 0)) + 1
+                monitor.save_state(state)
             self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
         elif parsed.path == "/api/usage":
             import monitor
             cfg = load_config()
             secrets = load_secrets()
-            provider = cfg.get("provider", "twelvedata")
+            # Use the provider passed from the UI (if any), else the saved config.
+            qs = parse_qs(parsed.query)
+            requested = (qs.get("provider") or [""])[0].lower()
+            provider = requested if requested in ("finnhub", "twelvedata", "yahoo") else cfg.get("provider", "finnhub")
             api_key = secrets.get("price_api_key", "")
             # Per-minute usage captured free from price-call headers.
             usage = monitor.get_last_usage()
@@ -155,10 +167,23 @@ class Handler(BaseHTTPRequestHandler):
                 daily_usage = int(state.get("daily_usage", 0))
             except Exception:
                 pass
+
+            # Show the provider's real limits based on the selected provider.
+            has_key = bool(api_key)
+            if provider == "yahoo":
+                minute = {"used_min": None, "left_min": None, "limit_min": None, "delay": "~15 min delayed"}
+            elif provider == "finnhub" and has_key:
+                minute = usage if usage.get("limit_min") else {"used_min": None, "left_min": None, "limit_min": 60, "delay": "real-time"}
+            elif provider == "twelvedata" and has_key:
+                minute = usage if usage.get("limit_min") else {"used_min": None, "left_min": None, "limit_min": 8, "delay": "real-time"}
+            else:
+                # No key for a keyed provider -> falls back to Yahoo.
+                minute = {"used_min": None, "left_min": None, "limit_min": None, "delay": "~15 min delayed"}
+
             self._send_json({
                 "provider": provider,
-                "has_key": bool(api_key),
-                "minute": usage,
+                "has_key": has_key,
+                "minute": minute,
                 "daily": {"used": daily_usage, "limit": 800},
             })
         else:
@@ -207,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
             import monitor
             cfg = load_config()
             secrets = load_secrets()
-            provider = cfg.get("provider", "twelvedata")
+            provider = cfg.get("provider", "finnhub")
             api_key = secrets.get("price_api_key", "")
             tickers = cfg.get("tickers", [])
             symbol = tickers[0].strip().upper() if tickers else "AAPL"
@@ -444,8 +469,8 @@ HTML = """<!DOCTYPE html>
     <div style="margin-bottom:12px">
       <label>Provider</label>
       <select id="provider" onchange="updateProviderUI()">
-        <option value="twelvedata">Twelve Data — real-time (recommended)</option>
-        <option value="finnhub">Finnhub — real-time</option>
+        <option value="finnhub">Finnhub — real-time (recommended)</option>
+        <option value="twelvedata">Twelve Data — real-time</option>
         <option value="yahoo">Yahoo Finance — ~15 min delayed, no key</option>
       </select>
     </div>
@@ -469,6 +494,10 @@ HTML = """<!DOCTYPE html>
         <span class="usage-label">Per day</span>
         <div class="gauge"><div class="gauge-fill" id="gaugeDay" style="width:0%"></div></div>
         <span class="usage-num" id="usageDayText">— / 800</span>
+      </div>
+      <div class="usage-row">
+        <span class="usage-label">Delay</span>
+        <span class="usage-num" id="usageDelay" style="width:auto;text-align:left;color:var(--muted);font-weight:400">—</span>
       </div>
       <div class="hint" id="usageHint">Live usage from your price provider's free tier.
       Per-minute resets every minute; per-day resets at midnight UTC.</div>
@@ -521,7 +550,7 @@ async function load() {
   tickers = data.config.tickers || [];
   document.getElementById('threshold').value = data.config.threshold_pct;
   document.getElementById('enabledToggle').checked = !!data.config.enabled;
-  document.getElementById('provider').value = data.config.provider || 'twelvedata';
+  document.getElementById('provider').value = data.config.provider || 'finnhub';
   document.getElementById('apikey').value = data.secrets.price_api_key || '';
   document.getElementById('token').value = data.secrets.telegram_bot_token || '';
   document.getElementById('chatid').value = data.secrets.telegram_chat_id || '';
@@ -533,6 +562,8 @@ async function load() {
 function updateProviderUI() {
   const p = document.getElementById('provider').value;
   document.getElementById('apikeyRow').style.display = (p === 'yahoo') ? 'none' : 'block';
+  // Refresh the usage gauges to reflect the newly selected provider's limits.
+  refreshUsage();
 }
 
 function toggleGuide() {
@@ -590,29 +621,42 @@ function updateStatus() {
 
 async function refreshUsage() {
   try {
-    const d = await api('/api/usage');
+    const selectedProvider = document.getElementById('provider').value;
+    const d = await api('/api/usage?provider=' + selectedProvider);
     const min = d.minute || {};
     const daily = d.daily || {};
-    const minUsed = min.used_min || 0;
-    const minLimit = min.limit_min || 8;
+    const minUsed = min.used_min;
+    const minLimit = min.limit_min;
     const dayUsed = daily.used || 0;
     const dayLimit = daily.limit || 800;
 
-    const minPct = Math.min(100, (minUsed / minLimit) * 100);
-    document.getElementById('gaugeMin').style.width = minPct + '%';
-    document.getElementById('gaugeMin').className = 'gauge-fill' + (minPct > 75 ? ' warn' : '');
-    document.getElementById('usageMinText').textContent = minUsed + ' / ' + minLimit;
+    // Per-minute gauge: if no limit (Yahoo), show "unlimited".
+    if (minLimit) {
+      const minPct = Math.min(100, ((minUsed || 0) / minLimit) * 100);
+      document.getElementById('gaugeMin').style.width = minPct + '%';
+      document.getElementById('gaugeMin').className = 'gauge-fill' + (minPct > 75 ? ' warn' : '');
+      document.getElementById('usageMinText').textContent = (minUsed || 0) + ' / ' + minLimit;
+    } else {
+      document.getElementById('gaugeMin').style.width = '0%';
+      document.getElementById('gaugeMin').className = 'gauge-fill';
+      document.getElementById('usageMinText').textContent = 'unlimited';
+    }
 
     const dayPct = Math.min(100, (dayUsed / dayLimit) * 100);
     document.getElementById('gaugeDay').style.width = dayPct + '%';
     document.getElementById('gaugeDay').className = 'gauge-fill' + (dayPct > 75 ? ' warn' : '');
     document.getElementById('usageDayText').textContent = dayUsed + ' / ' + dayLimit;
 
+    // Delay info.
+    const delay = min.delay || 'unknown';
+    const delayText = document.getElementById('usageDelay');
+    if (delayText) delayText.textContent = delay;
+
     const hint = document.getElementById('usageHint');
     if (!d.has_key && d.provider !== 'yahoo') {
-      hint.textContent = 'No API key set — using Yahoo fallback (free, unlimited). Add a key for real-time + usage tracking.';
+      hint.textContent = 'No API key set — using Yahoo fallback (free, unlimited, ~15 min delayed). Add a key for real-time data.';
     } else if (d.provider === 'yahoo') {
-      hint.textContent = 'Yahoo Finance is free and unlimited — no usage limits apply.';
+      hint.textContent = 'Yahoo Finance is free and unlimited — no usage limits apply. Data is ~15 min delayed.';
     } else {
       hint.textContent = 'Live usage from ' + d.provider + ' free tier. Per-minute resets each minute; per-day resets at midnight UTC.';
     }

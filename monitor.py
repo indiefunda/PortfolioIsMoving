@@ -6,9 +6,9 @@ Checks configured stocks against their previous trading day's close and sends
 a Telegram alert when a stock moves more than the configured threshold.
 
 Price sources (choose in app.py):
-  - Twelve Data (default): real-time US stocks, batch endpoint, free
-  - Finnhub:              real-time US stocks, free
-  - Yahoo Finance:        ~15 min delayed, unlimited, no key (automatic fallback)
+  - Finnhub (default):      real-time US stocks, 60 calls/min free, gets prev close
+  - Twelve Data:            real-time US stocks, 8 credits/min free
+  - Yahoo Finance:          ~15 min delayed, unlimited, no key (automatic fallback)
 Alerts      : Telegram bot (free)
 """
 
@@ -51,8 +51,9 @@ HEADERS = {
     )
 }
 
-# Default provider if none configured. "twelvedata" = real-time + batch (best fit).
-DEFAULT_PROVIDER = "twelvedata"
+# Default provider if none configured. "finnhub" = real-time, 60 calls/min,
+# returns current + prev close in one call (best fit for this app).
+DEFAULT_PROVIDER = "finnhub"
 
 
 # ---------------------------------------------------------------------------
@@ -149,13 +150,6 @@ def _fetch_twelvedata(symbols, api_key):
         except Exception as exc:
             print(f"  [error] twelvedata {chunk}: {exc}", file=sys.stderr)
 
-    if used_min is not None and left_min is not None:
-        last_usage = {
-            "used_min": used_min,
-            "left_min": left_min,
-            "limit_min": used_min + left_min,
-        }
-
     if not live:
         return result
 
@@ -168,18 +162,36 @@ def _fetch_twelvedata(symbols, api_key):
             result[sym] = (cur, prev[sym][1])
         else:
             result[sym] = (cur, None)
+
+    # Set Twelve Data usage AFTER the Yahoo call so it isn't overwritten.
+    if used_min is not None and left_min is not None:
+        last_usage = {
+            "used_min": used_min,
+            "left_min": left_min,
+            "limit_min": used_min + left_min,
+            "delay": "real-time",
+        }
     return result
 
 
 def _fetch_finnhub(symbols, api_key):
     """Finnhub - real-time, one call per symbol. Returns {symbol: (current, prev_close)}."""
+    global last_usage
     result = {}
+    remaining = None
+    limit = None
     for sym in symbols:
         try:
             resp = requests.get(
                 FINNHUB_QUOTE.format(symbol=sym, key=api_key), timeout=15
             )
             resp.raise_for_status()
+            # Capture Finnhub rate-limit info (free, from response headers).
+            try:
+                remaining = int(resp.headers.get("X-Ratelimit-Remaining", remaining or 0))
+                limit = int(resp.headers.get("X-Ratelimit-Limit", limit or 0))
+            except (ValueError, TypeError):
+                pass
             q = resp.json()
             current = q.get("c")
             prev_close = q.get("pc")
@@ -188,11 +200,20 @@ def _fetch_finnhub(symbols, api_key):
             result[sym.upper()] = (float(current), float(prev_close))
         except Exception as exc:
             print(f"  [error] finnhub {sym}: {exc}", file=sys.stderr)
+
+    if limit and remaining is not None:
+        last_usage = {
+            "used_min": limit - remaining,
+            "left_min": remaining,
+            "limit_min": limit,
+            "delay": "real-time",
+        }
     return result
 
 
 def _fetch_yahoo(symbols):
     """Yahoo Finance - ~15 min delayed, unlimited, no key. Returns {symbol: (current, prev_close)}."""
+    global last_usage
     result = {}
     for sym in symbols:
         try:
@@ -215,6 +236,14 @@ def _fetch_yahoo(symbols):
             result[sym.upper()] = (float(current), float(prev_close))
         except Exception as exc:
             print(f"  [error] yahoo {sym}: {exc}", file=sys.stderr)
+
+    # Yahoo has no rate limit; report its documented delay.
+    last_usage = {
+        "used_min": None,
+        "left_min": None,
+        "limit_min": None,
+        "delay": "~15 min delayed",
+    }
     return result
 
 
