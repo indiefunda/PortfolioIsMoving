@@ -10,7 +10,9 @@ venv/
 
 # Secrets (never commit your bot token or chat id)
 # Note: config_local.json is COMMITTED on purpose - it only holds tickers,
-# threshold and enabled flag (no secrets). Telegram secrets go in GitHub Actions.
+# threshold and enabled flag (no secrets). Telegram secrets live in
+# secrets_local.json (git-ignored) or in GitHub Actions secrets.
+secrets_local.json
 .env
 *.env
 

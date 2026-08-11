@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""
+PortfolioIsMoving - local setup app.
+
+Starts a tiny local web server and opens your browser at
+http://localhost:8000 where you can:
+  - Add / remove tickers
+  - Set the movement threshold (%)
+  - Enter your Telegram bot token and chat id
+  - Enable / disable monitoring
+  - Test that Telegram alerts work
+
+Everything is saved to local files. Nothing is uploaded. Close the window
+when you're done - monitoring runs 24/7 in the cloud via GitHub Actions.
+
+Uses only the Python standard library (http.server, json, webbrowser).
+"""
+
+import json
+import os
+import threading
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(BASE_DIR, "config_local.json")
+SECRETS_FILE = os.path.join(BASE_DIR, "secrets_local.json")
+STATE_FILE = os.path.join(BASE_DIR, "state.json")
+
+PORT = 8000
+
+DEFAULT_CONFIG = {
+    "tickers": [],
+    "threshold_pct": 5.0,
+    "enabled": False,
+}
+
+# ---------------------------------------------------------------------------
+# File helpers
+# ---------------------------------------------------------------------------
+def _read_json(path, default):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(default, dict) and isinstance(data, dict):
+                merged = dict(default)
+                merged.update(data)
+                return merged
+            return data
+        except Exception:
+            return default
+    return default
+
+
+def _write_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_config():
+    return _read_json(CONFIG_FILE, dict(DEFAULT_CONFIG))
+
+
+def save_config(config):
+    _write_json(CONFIG_FILE, config)
+
+
+def load_secrets():
+    return _read_json(SECRETS_FILE, {"telegram_bot_token": "", "telegram_chat_id": ""})
+
+
+def save_secrets(secrets):
+    _write_json(SECRETS_FILE, secrets)
+
+
+# ---------------------------------------------------------------------------
+# Telegram test
+# ---------------------------------------------------------------------------
+def send_telegram(token, chat_id, message):
+    import requests
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        resp = requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=15)
+        resp.raise_for_status()
+        return True, "OK"
+    except Exception as exc:
+        return False, str(exc)
+
+
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass  # silence default logging
+
+    def _send_json(self, obj, status=200):
+        body = json.dumps(obj).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_html(self, html):
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/" or parsed.path == "/index.html":
+            self._send_html(HTML)
+        elif parsed.path == "/api/config":
+            cfg = load_config()
+            secrets = load_secrets()
+            self._send_json({"config": cfg, "secrets": secrets})
+        elif parsed.path == "/api/price":
+            qs = parse_qs(parsed.query)
+            symbol = (qs.get("symbol") or [""])[0].strip().upper()
+            if not symbol:
+                self._send_json({"error": "no symbol"}, 400)
+                return
+            import monitor
+            cur, prev = monitor.get_price_and_prev_close(symbol)
+            if cur is None:
+                self._send_json({"error": f"Could not fetch {symbol}"}, 502)
+                return
+            pct = ((cur - prev) / prev * 100.0) if prev else 0.0
+            self._send_json({"symbol": symbol, "current": cur, "prev_close": prev, "pct": round(pct, 2)})
+        else:
+            self._send_json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8") if length else "{}"
+        try:
+            payload = json.loads(body) if body else {}
+        except Exception:
+            payload = {}
+
+        if parsed.path == "/api/save":
+            cfg = load_config()
+            secrets = load_secrets()
+            if "tickers" in payload:
+                cfg["tickers"] = [t.strip().upper() for t in payload["tickers"] if t.strip()]
+            if "threshold_pct" in payload:
+                try:
+                    cfg["threshold_pct"] = float(payload["threshold_pct"])
+                except Exception:
+                    pass
+            if "enabled" in payload:
+                cfg["enabled"] = bool(payload["enabled"])
+            if "telegram_bot_token" in payload:
+                secrets["telegram_bot_token"] = payload["telegram_bot_token"].strip()
+            if "telegram_chat_id" in payload:
+                secrets["telegram_chat_id"] = payload["telegram_chat_id"].strip()
+            save_config(cfg)
+            save_secrets(secrets)
+            self._send_json({"ok": True, "config": cfg})
+        elif parsed.path == "/api/test":
+            token = (payload.get("telegram_bot_token") or "").strip()
+            chat_id = (payload.get("telegram_chat_id") or "").strip()
+            if not token or not chat_id:
+                self._send_json({"ok": False, "error": "Enter both token and chat id first."}, 400)
+                return
+            ok, msg = send_telegram(token, chat_id, "✅ PortfolioIsMoving test alert works!")
+            self._send_json({"ok": ok, "error": msg if not ok else None})
+        else:
+            self._send_json({"error": "not found"}, 404)
+
+
+# ---------------------------------------------------------------------------
+# HTML page (embedded)
+# ---------------------------------------------------------------------------
+HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PortfolioIsMoving</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --border: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+    --green: #22c55e; --red: #ef4444; --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh; padding: 24px;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
+  }
+  .card h2 { font-size: 16px; margin-bottom: 14px; color: var(--accent); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text); font-size: 14px;
+  }
+  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .row input { flex: 1; }
+  button {
+    padding: 10px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 14px; font-weight: 600;
+  }
+  .btn-primary { background: var(--accent); color: #0f172a; }
+  .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+  button:hover { filter: brightness(1.1); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .chip {
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 20px; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .chip button { background: none; border: none; color: var(--red); cursor: pointer; font-size: 14px; padding: 0; }
+  .switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; cursor: pointer; inset: 0;
+    background: var(--border); border-radius: 28px; transition: .3s;
+  }
+  .slider:before {
+    content: ""; position: absolute; height: 22px; width: 22px; left: 3px; bottom: 3px;
+    background: #fff; border-radius: 50%; transition: .3s;
+  }
+  .switch input:checked + .slider { background: var(--green); }
+  .switch input:checked + .slider:before { transform: translateX(24px); }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.on { color: var(--green); font-weight: 600; }
+  .status.off { color: var(--muted); }
+  .msg { padding: 10px 14px; border-radius: 8px; margin-top: 12px; font-size: 13px; display: none; }
+  .msg.ok { display: block; background: rgba(34,197,94,.12); color: var(--green); border: 1px solid rgba(34,197,94,.3); }
+  .msg.err { display: block; background: rgba(239,68,68,.12); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+  .price-preview { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .price-preview .up { color: var(--green); }
+  .price-preview .down { color: var(--red); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .secret { font-family: monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📈 PortfolioIsMoving</h1>
+  <div class="sub">Set up your portfolio. Monitoring runs free in the cloud 24/7.</div>
+
+  <div class="card">
+    <h2>1. Your stocks</h2>
+    <div class="row">
+      <input id="tickerInput" type="text" placeholder="e.g. HUIZ, AAPL" autocomplete="off">
+      <button class="btn-primary" onclick="addTicker()">Add</button>
+    </div>
+    <div id="chips" class="chips"></div>
+    <div class="price-preview" id="pricePreview"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. Alert threshold</h2>
+    <div class="row" style="align-items:center">
+      <input id="threshold" type="number" step="0.5" min="1" max="100">
+      <span style="color:var(--muted);font-size:14px">&nbsp;%</span>
+    </div>
+    <div class="hint">Alert when a stock moves at least this much from its previous close.</div>
+  </div>
+
+  <div class="card">
+    <h2>3. Telegram notification</h2>
+    <div style="margin-bottom:12px">
+      <label>Bot Token</label>
+      <input id="token" class="secret" type="text" placeholder="123456789:AAH...">
+    </div>
+    <div style="margin-bottom:12px">
+      <label>Chat ID</label>
+      <input id="chatid" type="text" placeholder="e.g. 123456789">
+    </div>
+    <button class="btn-ghost" onclick="testTelegram()">Send test alert</button>
+    <div class="hint">Need help? See the README. Token &amp; chat id stay on this computer.</div>
+  </div>
+
+  <div class="card">
+    <h2>4. Enable monitoring</h2>
+    <div class="toggle-row">
+      <span class="status" id="statusText">Loading...</span>
+      <label class="switch">
+        <input type="checkbox" id="enabledToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <button class="btn-primary" style="width:100%;padding:14px" onclick="save()">💾 Save portfolio</button>
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+let tickers = [];
+let config = { threshold_pct: 5.0, enabled: false };
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+async function load() {
+  const data = await api('/api/config');
+  config = data.config;
+  tickers = data.config.tickers || [];
+  document.getElementById('threshold').value = data.config.threshold_pct;
+  document.getElementById('enabledToggle').checked = !!data.config.enabled;
+  document.getElementById('token').value = data.secrets.telegram_bot_token || '';
+  document.getElementById('chatid').value = data.secrets.telegram_chat_id || '';
+  renderChips();
+  updateStatus();
+}
+
+function renderChips() {
+  const el = document.getElementById('chips');
+  el.innerHTML = '';
+  tickers.forEach(t => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.innerHTML = t + ' <button onclick="removeTicker(\'' + t + '\')">&times;</button>';
+    el.appendChild(chip);
+  });
+}
+
+function addTicker() {
+  const input = document.getElementById('tickerInput');
+  const t = input.value.trim().toUpperCase();
+  if (!t) return;
+  if (!tickers.includes(t)) {
+    tickers.push(t);
+    renderChips();
+    checkPrice(t);
+  }
+  input.value = '';
+}
+
+function removeTicker(t) {
+  tickers = tickers.filter(x => x !== t);
+  renderChips();
+}
+
+async function checkPrice(symbol) {
+  const el = document.getElementById('pricePreview');
+  try {
+    const d = await api('/api/price?symbol=' + symbol);
+    if (d.error) { el.innerHTML = '<span>' + symbol + ': ' + d.error + '</span>'; return; }
+    const cls = d.pct >= 0 ? 'up' : 'down';
+    const arrow = d.pct >= 0 ? '▲' : '▼';
+    el.innerHTML = '<span>' + symbol + ': $' + d.current.toFixed(2) +
+      ' (prev $' + d.prev_close.toFixed(2) + ') <span class="' + cls + '">' + arrow + ' ' + d.pct + '%</span></span>';
+  } catch(e) {
+    el.innerHTML = '<span>Could not check price.</span>';
+  }
+}
+
+function updateStatus() {
+  const on = document.getElementById('enabledToggle').checked;
+  const el = document.getElementById('statusText');
+  el.textContent = on ? 'MONITORING ON' : 'Monitoring off';
+  el.className = 'status ' + (on ? 'on' : 'off');
+}
+
+async function testTelegram() {
+  const token = document.getElementById('token').value.trim();
+  const chatid = document.getElementById('chatid').value.trim();
+  showMsg('Sending test alert...', 'ok');
+  const r = await api('/api/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegram_bot_token: token, telegram_chat_id: chatid })
+  });
+  if (r.ok) showMsg('✅ Test alert sent! Check your Telegram.', 'ok');
+  else showMsg('❌ Failed: ' + (r.error || 'unknown'), 'err');
+}
+
+async function save() {
+  const threshold = parseFloat(document.getElementById('threshold').value) || 5.0;
+  const enabled = document.getElementById('enabledToggle').checked;
+  const token = document.getElementById('token').value.trim();
+  const chatid = document.getElementById('chatid').value.trim();
+  const r = await api('/api/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tickers, threshold_pct: threshold, enabled, telegram_bot_token: token, telegram_chat_id: chatid })
+  });
+  if (r.ok) {
+    showMsg('✅ Saved! ' + tickers.length + ' ticker(s), threshold ' + threshold + '%.', 'ok');
+  } else {
+    showMsg('❌ Save failed.', 'err');
+  }
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + type;
+  setTimeout(() => { el.className = 'msg'; }, 4000);
+}
+
+load();
+</script>
+</body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def main():
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    url = f"http://127.0.0.1:{PORT}"
+    print("PortfolioIsMoving setup running at", url)
+    print("Close this window when done - monitoring runs in the cloud.")
+    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

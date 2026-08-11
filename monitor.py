@@ -23,6 +23,7 @@ import requests
 # ---------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config_local.json")
+SECRETS_FILE = os.path.join(BASE_DIR, "secrets_local.json")
 STATE_FILE = os.path.join(BASE_DIR, "state.json")
 
 # US Eastern timezone (NY market)
@@ -63,6 +64,17 @@ def load_state():
             return json.load(f)
     except Exception:
         return {"date": None, "alerted": []}
+
+
+def load_secrets():
+    """Load Telegram credentials from secrets_local.json (local testing only)."""
+    if not os.path.exists(SECRETS_FILE):
+        return {}
+    try:
+        with open(SECRETS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def save_state(state):
@@ -154,25 +166,26 @@ def is_market_hours(now_et):
 def main():
     config = load_config()
     if not config:
-        print("No config_local.json found. Run gui.py first to set up your portfolio.")
+        print("No config_local.json found. Run app.py to set up your portfolio.")
         return
 
     enabled = config.get("enabled", False)
     if not enabled:
-        print("Monitoring is disabled (enabled=false). Enable it in gui.py.")
+        print("Monitoring is disabled (enabled=false). Enable it in app.py.")
         return
 
     tickers = config.get("tickers", [])
     threshold = float(config.get("threshold_pct", 5.0))
-    token = os.environ.get("TELEGRAM_BOT_TOKEN") or config.get("telegram_bot_token", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or config.get("telegram_chat_id", "")
+    secrets = load_secrets()
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or secrets.get("telegram_bot_token", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or secrets.get("telegram_chat_id", "")
 
     if not tickers:
-        print("No tickers configured. Add some in gui.py.")
+        print("No tickers configured. Run app.py to add some.")
         return
     if not token or not chat_id:
-        print("Telegram credentials missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
-        return
+        print("Telegram credentials missing. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID "
+              "(cloud) or run app.py to enter them locally.")
 
     # Market-hours gate (skip when market closed)
     now_et = datetime.now(EASTERN)
