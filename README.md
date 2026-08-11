@@ -105,49 +105,118 @@ In the app (still open in your browser), fill in the boxes:
 
 # PART 6 — Connect to GitHub (so it runs 24/7 for free)
 
-> This is the only slightly technical part. Do it once, carefully.
+> This is the only slightly technical part. **Follow it slowly, one step at a
+> time.** It takes about 5 minutes. Do it once.
+
+**Why this step exists:** Your computer can't stay on 24/7, so a free service
+called **GitHub Actions** runs the monitor for you in the cloud. This part
+"connects" your setup to that free service.
+
+**What you'll do in this part:**
+1. Create a free GitHub account
+2. Make a copy ("fork") of this project under your account
+3. Tell GitHub your private info (called "secrets")
+4. Upload your stock list
+5. Turn on the monitor
+
+---
 
 ### A. Create a free GitHub account (if you don't have one)
-1. Go to **https://github.com/** and click **Sign up**.
-2. Pick a username, email, password. Confirm your email.
+
+1. Go to **https://github.com/**
+2. Click **Sign up** (top-right).
+3. Enter an **email**, a **password**, and a **username** (pick anything, e.g. `mystockalerts`).
+4. Click **Create account**.
+5. GitHub will email you a code — enter it to confirm.
+6. Answer the optional questions (or just click **Skip** / **Continue**).
+
+---
 
 ### B. Make your own copy of this project
+
+> This is called a **"fork"**. It makes a copy of the project under YOUR account,
+> so it's yours to change.
+
 1. Open this project's GitHub page (ask the person who gave you this for the link).
-2. Click the **Fork** button (top-right). This copies it under **your** account.
-3. Wait a few seconds — you now have your own copy.
+2. Click the **Fork** button (top-right, near the star icon).
+3. Wait a few seconds — you now have your own copy at
+   `github.com/YOUR_USERNAME/PortfolioIsMoving`.
+
+---
 
 ### C. Add your secrets (your private info)
-1. On **your** copy's page, click **Settings** (top tab).
-2. In the left menu, click **Secrets and variables** → **Actions**.
-3. Click **New repository secret**.
-4. **Name:** `TELEGRAM_BOT_TOKEN` → **Value:** your bot token → **Add secret**.
-5. Click **New repository secret** again.
-6. **Name:** `TELEGRAM_CHAT_ID` → **Value:** your chat id → **Add secret**.
-7. Click **New repository secret** again.
-8. **Name:** `PRICE_API_KEY` → **Value:** your API key from Part 3 → **Add secret**.
 
-### D. Upload your portfolio
-1. In your copy on GitHub, click **Add file** → **Upload files**.
-2. Upload `config_local.json` from your folder (in Part 2's folder).
-3. Click **Commit changes**.
+> "Secrets" are how you safely tell GitHub your Telegram token, chat id, and API
+> key — WITHOUT showing them to anyone. They're encrypted and only the cloud
+> monitor can read them.
 
-> ⚠️ Do **NOT** upload `secrets_local.json` — it has your private info.
+1. On **your** copy's page, click the **Settings** tab (near the top, under the
+   repo name).
+2. In the **left sidebar**, click **Secrets and variables**.
+3. Click **Actions**.
+4. Click the green **New repository secret** button.
+5. A form appears with two boxes: **Name** and **Value**.
+6. **First secret:**
+   - **Name:** type exactly `TELEGRAM_BOT_TOKEN`
+   - **Value:** paste your Telegram bot token (from Part 4)
+   - Click **Add secret** (green button).
+7. **Second secret:** click **New repository secret** again.
+   - **Name:** type exactly `TELEGRAM_CHAT_ID`
+   - **Value:** paste your Telegram chat id (from Part 4)
+   - Click **Add secret**.
+8. **Third secret:** click **New repository secret** again.
+   - **Name:** type exactly `PRICE_API_KEY`
+   - **Value:** paste your API key (from Part 3, Finnhub or Twelve Data)
+   - Click **Add secret**.
+
+> ✅ You should now see 3 secrets listed: `TELEGRAM_BOT_TOKEN`,
+> `TELEGRAM_CHAT_ID`, `PRICE_API_KEY`.
+
+> ⚠️ **Copy the names EXACTLY** — with capital letters and underscores. If a name
+> is wrong, the monitor can't find it and won't work.
+
+---
+
+### D. Upload your stock list
+
+> Your stock list is in a file called `config_local.json`. It was created when
+> you saved in the app (Part 5). You need to upload it to your GitHub copy so the
+> cloud monitor knows which stocks to watch.
+
+1. Find `config_local.json` in the folder where you unzipped the app.
+2. On **your** GitHub copy, click **Add file** (near the top) → **Upload files**.
+3. **Drag** `config_local.json` into the upload area (or click to browse).
+4. Scroll down and click **Commit changes** (green button).
+
+> ⚠️ Do **NOT** upload `secrets_local.json` — that file has your private info
+> and must stay on your computer.
+
+---
 
 ### E. Turn on the monitor
-> ⚠️ **Important:** after forking, GitHub **disables** scheduled workflows by
-> default. You must turn it on — that's this step. If you skip it, nothing will run.
 
-1. In your copy, click the **Actions** tab.
-2. If GitHub asks, click **"I understand my workflows, go ahead and enable them"**.
-3. Click the **Monitor Portfolio** workflow → **Run workflow** → **Run**.
-4. Watch the log — it checks your stocks. You'll see each ticker and its % move.
+> ⚠️ **Important:** after forking, GitHub **turns OFF** the automatic monitor by
+> default. You must turn it on here. If you skip this step, nothing will run.
 
-**That's it!** It now runs automatically **every 10 minutes during US market hours,
-Mon–Fri**. Your computer can be off.
+1. On **your** GitHub copy, click the **Actions** tab (near the top).
+2. If GitHub shows a warning, click **"I understand my workflows, go ahead and
+   enable them"**.
+3. In the left sidebar, click **Monitor Portfolio**.
+4. Click the **Run workflow** button (right side, near the top).
+5. Click the green **Run workflow** button in the dropdown.
+6. A run appears in the list. Click it to watch it work.
+7. In the run, click the **Monitor** job, then the step **Run monitor**.
+8. You'll see the log — it checks each of your stocks and shows their % move.
 
-> 💡 **Make sure your own stocks are in the config.** The fork starts with example
-> tickers (HUIZ, YB, LX). After you set your own stocks in the app and save, upload
-> the new `config_local.json` (step D). The monitor uses whatever is in that file.
+---
+
+**That's it!** Your monitor is now connected and runs automatically **every 10
+minutes during US market hours (Mon–Fri, 9:30am–4pm ET)**. Your computer can be
+off — the cloud does the work.
+
+> 💡 **Make sure your own stocks are in the config.** The copy starts with example
+> tickers. After you set your own stocks in the app and save, upload the new
+> `config_local.json` (step D). The monitor uses whatever is in that file.
 
 ---
 
