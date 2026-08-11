@@ -83,8 +83,11 @@ echo  [OK] Libraries already installed.
 echo.
 
 REM ---------------------------------------------------------
-REM  Step 3: Launch the setup screen
+REM  Step 3: Open the setup guide + launch the setup screen
 REM ---------------------------------------------------------
+echo  Opening the setup GUIDE in your browser (follow it step by step)...
+start "" "%~dp0README.md"
+
 echo  Opening the setup screen in your browser...
 echo  (If it does not open, go to  http://localhost:8000 )
 echo.
